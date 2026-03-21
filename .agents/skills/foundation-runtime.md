@@ -2,9 +2,9 @@
 
 ## Objetivo
 
-Descrever a base técnica vigente da Phase 0 e as convenções que qualquer agente deve preservar ao evoluir runtime, bootstrap, ambiente local e estrutura do repositório.
+Descrever a base tecnica vigente ate a Phase 1 e as convencoes que qualquer agente deve preservar ao evoluir runtime, bootstrap, ambiente local e estrutura do repositorio.
 
-## Estado vigente da foundation
+## Estado vigente do runtime
 
 - Linguagem principal: Go
 - HTTP: `chi`
@@ -16,6 +16,8 @@ Descrever a base técnica vigente da Phase 0 e as convenções que qualquer agen
 - CI: GitHub Actions
 - Containers: Docker + Docker Compose
 - Testes de integração: `testcontainers-go`
+- IDs: `google/uuid`
+- Fluxo funcional vigente: `Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`
 
 ## Estrutura oficial do repositório
 
@@ -47,7 +49,7 @@ Descrever a base técnica vigente da Phase 0 e as convenções que qualquer agen
     └── support/
 ```
 
-## Contrato de configuração da Phase 0
+## Contrato de configuracao da Phase 1
 
 ### Obrigatórias
 
@@ -96,9 +98,9 @@ Descrever a base técnica vigente da Phase 0 e as convenções que qualquer agen
 - `make migrate-up`
 - `make migrate-down`
 
-## Regras para evolução da foundation
+## Regras para evolucao da foundation
 
 - Não introduzir lógica de negócio em `internal/shared`.
 - `internal/shared` deve conter apenas utilidades transversais estáveis.
-- Alterações em bootstrap, ambiente, comandos, stack ou estrutura exigem atualização de README, CHANGELOG e `docs/commands.md`.
-- Redis e OpenTelemetry continuam fora do runtime da Phase 0 até decisão explícita.
+- Alteracoes em bootstrap, ambiente, comandos, stack ou estrutura exigem atualizacao de README, CHANGELOG e `docs/commands.md`.
+- Redis, OpenTelemetry e eventos internos continuam fora do runtime ativo ate decisao explicita de fase futura.

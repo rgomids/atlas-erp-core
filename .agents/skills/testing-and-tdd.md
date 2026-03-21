@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Definir a estratégia de testes para a foundation atual e para a evolução futura do domínio.
+Definir a estrategia de testes da foundation e da Phase 1, preservando cobertura relevante do fluxo de negocio ja entregue.
 
 ## Tipos obrigatórios de teste
 
@@ -17,14 +17,18 @@ Definir a estratégia de testes para a foundation atual e para a evolução futu
 - `infrastructure`: testes de integração para persistência, handlers, migrations e integrações
 - fluxos críticos: testes funcionais ou E2E
 
-## Cobertura mínima vigente da Phase 0
+## Cobertura minima vigente da Phase 1
 
 - `internal/shared/config`: carregamento e validação de config
 - `internal/shared/logging`: logger estruturado
 - `internal/shared/correlation`: middleware de correlation ID
 - `internal/shared/http`: contrato do `GET /health`
-- `test/integration`: PostgreSQL real e migrations vazias com `testcontainers-go`
-- `test/functional`: contrato funcional do healthcheck
+- `internal/customers/domain`: regras centrais de cliente, documento e email
+- `internal/invoices/domain`: valor, vencimento e imutabilidade apos pagamento
+- `internal/payments/domain`: estados do pagamento
+- `internal/*/application`: use cases com fakes e cenarios de duplicidade/erro
+- `test/integration`: PostgreSQL real, migrations e fluxo Phase 1
+- `test/functional`: contrato funcional do healthcheck e fluxo HTTP ponta a ponta
 
 ## Regras de qualidade
 

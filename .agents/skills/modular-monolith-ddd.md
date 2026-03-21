@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Definir como o projeto deve evoluir do scaffold da Phase 0 para módulos de domínio reais, sem erosionar fronteiras internas.
+Definir como o projeto deve evoluir do scaffold da Phase 0 para modulos de dominio reais, sem erosionar fronteiras internas. A Phase 1 ja ativou `customers`, `invoices` e `payments`.
 
 ## Princípios obrigatórios
 
@@ -22,7 +22,7 @@ interface -> application -> domain
 ### `customers`
 
 - Cadastro e ciclo de vida de clientes
-- Services esperados: `CreateCustomer`, `UpdateCustomerProfile`, `DeactivateCustomer`
+- Services implementados/esperados: `CreateCustomer`, `UpdateCustomer`, `DeactivateCustomer`
 - Jobs esperados: `RebuildCustomerProjections`, `SyncCustomerReadModel`
 - Models esperados: `Customer`, `CustomerDocument`, `CustomerStatus`, `CustomerCreated`
 
@@ -36,14 +36,14 @@ interface -> application -> domain
 ### `invoices`
 
 - Emissão e consolidação de invoices
-- Services esperados: `GenerateInvoice`, `IssueInvoice`, `CancelInvoice`
+- Services implementados/esperados: `CreateInvoice`, `ListCustomerInvoices`, `IssueInvoice`, `CancelInvoice`
 - Jobs esperados: `ReconcileInvoices`, `RetryInvoiceDispatch`
 - Models esperados: `Invoice`, `InvoiceLine`, `InvoiceStatus`, `InvoiceGenerated`
 
 ### `payments`
 
 - Processamento e estorno de pagamentos
-- Services esperados: `ProcessPayment`, `ConfirmPayment`, `RefundPayment`
+- Services implementados/esperados: `ProcessPayment`, `ConfirmPayment`, `RefundPayment`
 - Jobs esperados: `RetryPaymentSettlement`, `ExpirePendingPayments`
 - Models esperados: `Payment`, `PaymentAttempt`, `PaymentStatus`, `PaymentProcessed`
 
@@ -80,13 +80,18 @@ internal/<module>/
 
 ## Comunicação entre módulos
 
-### Preferência
+### Preferencia
 
 - eventos internos in-process
 
-### Exceção
+### Excecao
 
 - chamada síncrona apenas via interface pública de borda
+
+### Contratos sincronos ativos na Phase 1
+
+- `customers/application/ports.ExistenceChecker`
+- `invoices/application/ports.InvoicePaymentPort`
 
 ### Eventos de referência
 

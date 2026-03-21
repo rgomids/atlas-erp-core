@@ -10,19 +10,22 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/shared/correlation"
 )
 
-func NewRouter(logger *slog.Logger, correlationHeader string) http.Handler {
+type RouteRegistrar func(chi.Router)
+
+func NewRouter(logger *slog.Logger, correlationHeader string, registrars ...RouteRegistrar) http.Handler {
 	router := chi.NewRouter()
 	router.Use(correlation.Middleware(correlationHeader))
 	router.Use(requestLogger(logger))
 	router.Get("/health", healthHandler)
+	for _, registrar := range registrars {
+		registrar(router)
+	}
 
 	return router
 }
 
 func healthHandler(writer http.ResponseWriter, _ *http.Request) {
-	writer.Header().Set("Content-Type", "application/json")
-	writer.WriteHeader(http.StatusOK)
-	_, _ = writer.Write([]byte(`{"status":"ok"}`))
+	WriteJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
