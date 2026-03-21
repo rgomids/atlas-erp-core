@@ -8,7 +8,7 @@ Este documento descreve a arquitetura-alvo, as convenções obrigatórias e o co
 
 ---
 
-## 🎯 Propósito
+## Propósito
 
 Este repositório existe para demonstrar como projetar e construir um **modular monolith** com disciplina arquitetural, usando:
 
@@ -21,7 +21,7 @@ O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar li
 
 ---
 
-## 🧱 Visão geral da arquitetura
+## Visão geral da arquitetura
 
 ### Princípios obrigatórios
 
@@ -50,7 +50,7 @@ O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar li
 
 ---
 
-## 🧭 Estado atual vs arquitetura-alvo
+## Estado atual vs arquitetura-alvo
 
 ### Fato atual
 
@@ -64,7 +64,7 @@ O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar li
 
 ---
 
-## 🧩 Bounded Contexts de referência
+## Bounded Contexts de referência
 
 Os bounded contexts iniciais do projeto são:
 
@@ -109,7 +109,7 @@ Esses nomes são referências de arquitetura-alvo e **não** inventário de cód
 
 ---
 
-## 📂 Estrutura padrão do repositório
+## Estrutura padrão do repositório
 
 Estrutura esperada para a evolução do projeto:
 
@@ -173,7 +173,7 @@ internal/customers/
 
 ---
 
-## 🛠️ Stack tecnológico completo
+## Stack tecnológico completo
 
 Esta é a stack baseline do projeto:
 
@@ -220,7 +220,7 @@ Esta é a stack baseline do projeto:
 
 ---
 
-## 🔐 Variáveis de ambiente
+## Variáveis de ambiente
 
 As variáveis abaixo compõem a baseline da aplicação. Elas devem ser documentadas no `README.md` e revisadas sempre que novas capacidades forem adicionadas.
 
@@ -252,7 +252,7 @@ Novas variáveis de ambiente só podem ser adicionadas com:
 
 ---
 
-## ✅ Regras obrigatórias de engenharia
+## Regras obrigatórias de engenharia
 
 ### SOLID e Object Calisthenics
 
@@ -297,7 +297,7 @@ func handler() {
 
 ---
 
-## 🧪 Estratégia de testes
+## Estratégia de testes
 
 Criar e manter, no mínimo:
 
@@ -331,7 +331,7 @@ TDD é obrigatório para regras de domínio, use cases e contratos críticos ent
 
 ---
 
-## 📡 Observabilidade obrigatória
+## Observabilidade obrigatória
 
 - Logs estruturados em todos os fluxos relevantes.
 - Correlation ID propagado da entrada HTTP até jobs e eventos internos.
@@ -341,21 +341,21 @@ TDD é obrigatório para regras de domínio, use cases e contratos críticos ent
 ### Convenções de logging
 
 - Logs devem usar mensagens objetivas e contextualizadas.
-- Quando houver logs operacionais ou de fluxo, usar emojis para destacar intenção visual sem substituir informação.
+- Logs devem ser textuais, consistentes e sem emojis.
 - Nunca registrar segredo, token, senha ou payload sensível.
 
 Exemplos:
 
 ```text
-INFO  🚀 api started port=8080 env=local
-INFO  📦 invoice generated invoice_id=inv_123 customer_id=cus_456
-WARN  ⏳ payment pending payment_id=pay_789 retry_in=30s
-ERROR ❌ database query failed correlation_id=abc-123 err="timeout"
+INFO  api started port=8080 env=local
+INFO  invoice generated invoice_id=inv_123 customer_id=cus_456
+WARN  payment pending payment_id=pay_789 retry_in=30s
+ERROR database query failed correlation_id=abc-123 err="timeout"
 ```
 
 ---
 
-## 🔄 Comunicação entre módulos
+## Comunicação entre módulos
 
 | Tipo | Permitido |
 | --- | --- |
@@ -379,7 +379,7 @@ type OrderCreated struct {
 
 ---
 
-## 🧠 Design patterns do projeto
+## Design patterns do projeto
 
 Os padrões abaixo formam a baseline de implementação:
 
@@ -395,7 +395,7 @@ Evitar padrões cerimoniais sem ganho real. Preferir simplicidade, coesão e cla
 
 ---
 
-## 📊 Visualização da arquitetura
+## Visualização da arquitetura
 
 Todos os diagramas devem ser mantidos em `docs/diagrams/`.
 
@@ -455,7 +455,7 @@ flowchart LR
 
 ---
 
-## 🧾 ADR e log de decisões
+## ADR e log de decisões
 
 Toda decisão estrutural relevante deve ser registrada em `docs/adr/`.
 
@@ -471,7 +471,7 @@ Documentar decisões, não suposições.
 
 ---
 
-## 🚀 Estratégia de evolução
+## Estratégia de evolução
 
 ### Fase 1
 
@@ -489,7 +489,7 @@ A prioridade atual é manter fronteiras corretas, e não antecipar complexidade 
 
 ---
 
-## ⚖️ Trade-offs
+## Trade-offs
 
 ### Benefícios
 
@@ -506,7 +506,7 @@ A prioridade atual é manter fronteiras corretas, e não antecipar complexidade 
 
 ---
 
-## 🧯 Common hurdles
+## Common hurdles
 
 ### 1. Acoplamento entre módulos
 
@@ -545,7 +545,32 @@ A prioridade atual é manter fronteiras corretas, e não antecipar complexidade 
 
 ---
 
-## 📘 README.md e CHANGELOG.md
+## Política de atualização do AGENTS.md
+
+O `AGENTS.md` deve evoluir junto com o projeto e nunca pode ficar desatualizado em relação à arquitetura, stack, módulos, comandos, práticas de teste e convenções operacionais.
+
+Atualize este arquivo sempre que houver mudança em qualquer um dos pontos abaixo:
+
+- arquitetura ou limites entre módulos
+- stack tecnológica ou ferramentas oficiais do projeto
+- variáveis de ambiente
+- estrutura de diretórios
+- novos módulos, apps, jobs, services ou models de referência
+- estratégia de testes
+- observabilidade, logging ou convenções operacionais
+- comandos do `Makefile`
+- processo de documentação, ADR, `README.md` ou `CHANGELOG.md`
+
+Regras obrigatórias:
+
+- nenhuma mudança estrutural relevante pode ser entregue sem revisão do `AGENTS.md`
+- se a mudança não exigir edição no arquivo, isso deve ser uma decisão consciente e verificável na revisão
+- o `AGENTS.md` deve refletir o estado vigente e a arquitetura-alvo, sem contradizer o repositório
+- o checklist pós-implementação deve tratar a revisão deste arquivo como item obrigatório
+
+---
+
+## README.md e CHANGELOG.md
 
 ### README.md
 
@@ -584,7 +609,7 @@ Nenhuma feature estrutural, alteração de contrato, novo módulo ou mudança op
 
 ---
 
-## 🧰 Comandos principais
+## Comandos principais
 
 O projeto deve centralizar automações no `Makefile` sempre que possível. Esta seção deve ser mantida atualizada conforme os comandos forem sendo implementados.
 
@@ -613,7 +638,7 @@ Regras:
 
 ---
 
-## 🧪 Checklist pós-implementação
+## Checklist pós-implementação
 
 Toda mudança relevante deve verificar:
 
@@ -624,6 +649,7 @@ Toda mudança relevante deve verificar:
 - testes de integração criados ou atualizados
 - testes funcionais criados ou atualizados quando o fluxo for crítico
 - logs estruturados e correlation ID presentes
+- `AGENTS.md` revisado e atualizado quando necessário
 - `README.md` atualizado
 - `CHANGELOG.md` atualizado
 - ADR criada ou revisada se houver decisão estrutural
@@ -631,7 +657,7 @@ Toda mudança relevante deve verificar:
 
 ---
 
-## 👨‍💻 Notas para mantenedores
+## Notas para mantenedores
 
 - Preferir simplicidade a abstrações prematuras.
 - Não transformar arquitetura em burocracia vazia.
