@@ -1,0 +1,2 @@
+-- Foundation migration placeholder.
+-- Tables will be introduced in subsequent phases.

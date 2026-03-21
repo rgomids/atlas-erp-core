@@ -1,0 +1,2 @@
+-- Foundation rollback placeholder.
+-- No schema objects are dropped in this phase.
