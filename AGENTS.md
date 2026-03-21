@@ -2,9 +2,9 @@
 
 ## Nota de contexto
 
-Este repositório está em estágio inicial e, neste momento, contém apenas artefatos básicos de versionamento.
+Este repositório já possui a **Fase 0 — Foundation** implementada e deve evoluir preservando a arquitetura-alvo definida neste documento.
 
-Este documento descreve a arquitetura-alvo, as convenções obrigatórias e o contrato de contribuição que deve orientar toda evolução futura do sistema. Quando houver divergência entre o estado atual do repositório e este documento, trate este arquivo como a referência arquitetural a ser seguida.
+Quando houver divergência entre o estado do código e práticas antigas, trate este arquivo como o contrato arquitetural vigente e mantenha-o sincronizado com README, CHANGELOG, ADRs, diagramas e comandos operacionais.
 
 ---
 
@@ -17,7 +17,7 @@ Este repositório existe para demonstrar como projetar e construir um **modular 
 - Event-Driven patterns internos
 - Caminho claro de evolução para microservices
 
-O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar limites modulares, linguagem de domínio e qualidade estrutural** enquanto o sistema cresce.
+O objetivo é preservar limites modulares, linguagem de domínio e qualidade estrutural enquanto o sistema cresce.
 
 ---
 
@@ -29,7 +29,7 @@ O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar li
    O sistema é um único artefato de deploy, porém dividido internamente em módulos com fronteiras claras.
 
 2. **DDD**
-   O código deve refletir bounded contexts, aggregates, entities, value objects, repositories e domain events.
+   O código deve refletir bounded contexts, aggregates, entities, value objects, repositories e domain events quando esses elementos forem introduzidos.
 
 3. **Clean Architecture**
    As dependências sempre apontam para dentro:
@@ -54,8 +54,10 @@ O objetivo não é apenas entregar funcionalidades. O objetivo é **preservar li
 
 ### Fato atual
 
-- O repositório ainda não possui código-fonte do sistema.
-- Ainda não existem módulos, handlers, use cases, migrations ou pipelines implementados.
+- O repositório possui a foundation operacional da aplicação.
+- Existe bootstrap HTTP com `chi`, logger estruturado, correlation ID, conexão com PostgreSQL e migrations vazias.
+- Os módulos `customers`, `billing`, `invoices` e `payments` existem apenas como scaffold estrutural.
+- Ainda não existem regras de negócio, entidades, aggregates, handlers de domínio, integrações externas reais ou eventos internos implementados.
 
 ### Convenção mandatória para evolução
 
@@ -72,8 +74,6 @@ Os bounded contexts iniciais do projeto são:
 - `billing`
 - `invoices`
 - `payments`
-
-Esses módulos representam a baseline arquitetural do sistema. Eles podem evoluir, mas qualquer novo módulo deve seguir a mesma disciplina de encapsulamento.
 
 ### Responsabilidades-alvo por módulo
 
@@ -105,13 +105,11 @@ Esses módulos representam a baseline arquitetural do sistema. Eles podem evolui
 - Jobs esperados: `RetryPaymentSettlement`, `ExpirePendingPayments`.
 - Models esperados: `Payment`, `PaymentAttempt`, `PaymentStatus`, `PaymentProcessed`.
 
-Esses nomes são referências de arquitetura-alvo e **não** inventário de código já implementado.
-
 ---
 
 ## Estrutura padrão do repositório
 
-Estrutura esperada para a evolução do projeto:
+Estrutura vigente e esperada para evolução:
 
 ```text
 .
@@ -119,26 +117,29 @@ Estrutura esperada para a evolução do projeto:
 ├── CHANGELOG.md
 ├── README.md
 ├── Makefile
+├── Dockerfile
+├── docker-compose.yml
 ├── cmd/
-│   └── api/
+│   ├── api/
+│   └── migrate/
 ├── configs/
 │   ├── app/
 │   └── observability/
 ├── docs/
 │   ├── adr/
+│   ├── commands.md
 │   └── diagrams/
 ├── internal/
+│   ├── shared/
 │   ├── customers/
 │   ├── billing/
 │   ├── invoices/
 │   └── payments/
 ├── migrations/
-├── pkg/
-│   └── shared/
-├── scripts/
 └── test/
     ├── integration/
-    └── functional/
+    ├── functional/
+    └── support/
 ```
 
 ### Estrutura padrão de módulo
@@ -148,10 +149,6 @@ Cada módulo deve viver em `internal/<module-name>`:
 ```text
 internal/customers/
 ├── domain/
-│   ├── entity.go
-│   ├── value_object.go
-│   ├── repository.go
-│   └── events.go
 ├── application/
 │   ├── usecase/
 │   └── dto/
@@ -166,16 +163,15 @@ internal/customers/
 
 - `docs/adr/`: Architectural Decision Records.
 - `docs/diagrams/`: diagramas Mermaid e artefatos C4.
+- `docs/commands.md`: referência operacional dos principais comandos.
 - `configs/`: configuração por ambiente e observabilidade.
-- `scripts/`: automações de setup, CI local e utilitários.
 - `test/integration/`: testes de integração com infraestrutura real.
 - `test/functional/`: testes funcionais e fluxos críticos.
+- `test/support/`: helpers de teste e bootstrap compartilhado para ambientes de teste.
 
 ---
 
 ## Stack tecnológico completo
-
-Esta é a stack baseline do projeto:
 
 ### Linguagem e runtime
 
@@ -184,26 +180,32 @@ Esta é a stack baseline do projeto:
 ### HTTP e composição da aplicação
 
 - `chi` para roteamento HTTP
-- `cmd/api` como ponto de entrada
+- `cmd/api` como ponto de entrada da API
+- `cmd/migrate` como ponto de entrada das migrations
 - `Makefile` como interface preferencial de automação
+
+### Configuração e logging
+
+- `.env` com `godotenv` para bootstrap local
+- `log/slog` para logs estruturados em JSON
+- Correlation ID propagado desde a borda HTTP
 
 ### Persistência
 
 - PostgreSQL como banco transacional principal
-- `pgx` para acesso ao PostgreSQL
+- `pgx/v5` para acesso ao PostgreSQL
 - `golang-migrate` para migrations
 
 ### Cache, coordenação e suporte a eventos
 
-- Redis para cache, locks leves, deduplicação e suporte operacional
-- Event bus interno in-memory ou adaptador equivalente, preparado para futura estratégia outbox
+- Redis segue como baseline arquitetural futura
+- Event bus interno segue como baseline futura, preparado para estratégia outbox
 
 ### Observabilidade
 
 - Logs estruturados
 - Correlation ID obrigatório
-- OpenTelemetry para traces e métricas
-- Exportação OTLP para backend observability
+- Código preparado para expansão futura com OpenTelemetry
 
 ### Containerização e ambiente local
 
@@ -222,27 +224,39 @@ Esta é a stack baseline do projeto:
 
 ## Variáveis de ambiente
 
-As variáveis abaixo compõem a baseline da aplicação. Elas devem ser documentadas no `README.md` e revisadas sempre que novas capacidades forem adicionadas.
+### Contrato canônico de runtime da Fase 0
 
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
-| `APP_NAME` | Sim | Nome lógico do serviço/aplicação. |
-| `APP_ENV` | Sim | Ambiente atual, por exemplo `local`, `dev`, `staging`, `prod`. |
 | `APP_PORT` | Sim | Porta HTTP da aplicação. |
-| `LOG_LEVEL` | Sim | Nível de log, por exemplo `debug`, `info`, `warn`, `error`. |
-| `DATABASE_URL` | Sim | String de conexão principal do PostgreSQL. |
+| `DB_HOST` | Sim | Host do PostgreSQL. |
+| `DB_PORT` | Sim | Porta do PostgreSQL. |
+| `DB_USER` | Sim | Usuário do PostgreSQL. |
+| `DB_PASSWORD` | Sim | Senha do PostgreSQL. |
+| `DB_NAME` | Sim | Nome do banco PostgreSQL. |
+| `APP_NAME` | Não | Nome lógico da aplicação. Padrão: `atlas-erp-core`. |
+| `APP_ENV` | Não | Ambiente atual. Padrão: `local`. |
+| `LOG_LEVEL` | Não | Nível de log. Padrão: `info`. |
+| `CORRELATION_ID_HEADER` | Não | Header HTTP de correlação. Padrão: `X-Correlation-ID`. |
+
+### Baseline documentada para fases futuras
+
+As variáveis abaixo permanecem registradas como baseline arquitetural e devem ser documentadas no README sempre que forem ativadas em runtime:
+
+| Variável | Obrigatória hoje | Descrição |
+| --- | --- | --- |
+| `DATABASE_URL` | Não | String de conexão consolidada para PostgreSQL quando a aplicação migrar para esse contrato. |
 | `DATABASE_MAX_OPEN_CONNS` | Não | Limite de conexões abertas com o banco. |
 | `DATABASE_MAX_IDLE_CONNS` | Não | Limite de conexões ociosas com o banco. |
 | `DATABASE_CONN_MAX_LIFETIME` | Não | Tempo máximo de vida de conexão. |
-| `REDIS_URL` | Sim | String de conexão do Redis. |
+| `REDIS_URL` | Não | String de conexão do Redis. |
 | `HTTP_READ_TIMEOUT` | Não | Timeout de leitura do servidor HTTP. |
 | `HTTP_WRITE_TIMEOUT` | Não | Timeout de escrita do servidor HTTP. |
 | `HTTP_IDLE_TIMEOUT` | Não | Timeout idle do servidor HTTP. |
-| `OTEL_SERVICE_NAME` | Sim | Nome do serviço reportado ao pipeline de observabilidade. |
+| `OTEL_SERVICE_NAME` | Não | Nome do serviço reportado ao pipeline de observabilidade. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Não | Endpoint OTLP para traces e métricas. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Não | Headers para autenticação OTLP. |
 | `OTEL_TRACES_SAMPLER` | Não | Estratégia de sampling de traces. |
-| `CORRELATION_ID_HEADER` | Não | Header HTTP usado para correlação entre requests. |
 
 Novas variáveis de ambiente só podem ser adicionadas com:
 
@@ -272,6 +286,7 @@ Novas variáveis de ambiente só podem ser adicionadas com:
 - `domain` não depende de framework, banco, HTTP ou detalhes de infraestrutura.
 - `application` orquestra casos de uso, DTOs e portas.
 - `infrastructure` implementa adapters, handlers, persistência e integrações.
+- `internal/shared` deve conter apenas utilidades realmente transversais e estáveis.
 
 ### Regras proibidas
 
@@ -279,7 +294,7 @@ Novas variáveis de ambiente só podem ser adicionadas com:
 
 ```go
 // PROIBIDO
-import "internal/payments"
+import "github.com/rgomids/atlas-erp-core/internal/payments/infrastructure"
 ```
 
 #### Regra de negócio em handler
@@ -312,12 +327,21 @@ Criar e manter, no mínimo:
 - `infrastructure`: testes de integração para repositórios, handlers, migrations e integrações externas.
 - fluxos críticos: testes funcionais ou E2E cobrindo jornadas de negócio relevantes.
 
+### Cobertura mínima vigente da foundation
+
+- `internal/shared/config`: testes unitários de carregamento e validação.
+- `internal/shared/logging`: testes unitários do logger estruturado.
+- `internal/shared/correlation`: testes unitários do middleware de correlação.
+- `internal/shared/http`: teste do contrato do `GET /health`.
+- `test/integration`: bootstrap do PostgreSQL e migrations vazias com `testcontainers-go`.
+- `test/functional`: contrato funcional do healthcheck.
+
 ### Regras de qualidade
 
 - Toda correção de bug deve vir acompanhada de teste que falha antes e passa depois.
 - Toda nova regra de negócio deve nascer orientada por teste.
 - Testes frágeis, acoplados a detalhes internos ou altamente dependentes de timing devem ser reescritos.
-- Usar `testcontainers-go` para cenários de integração com PostgreSQL e Redis.
+- Usar `testcontainers-go` para cenários de integração com PostgreSQL e Redis quando Redis entrar em runtime.
 
 ### Instruções de TDD
 
@@ -335,7 +359,7 @@ TDD é obrigatório para regras de domínio, use cases e contratos críticos ent
 
 - Logs estruturados em todos os fluxos relevantes.
 - Correlation ID propagado da entrada HTTP até jobs e eventos internos.
-- Métricas básicas de latência, erro e throughput.
+- Métricas básicas de latência, erro e throughput devem ser introduzidas em fases futuras.
 - Código preparado para tracing distribuído futuro, mesmo que o sistema ainda seja monolítico.
 
 ### Convenções de logging
@@ -347,10 +371,9 @@ TDD é obrigatório para regras de domínio, use cases e contratos críticos ent
 Exemplos:
 
 ```text
-INFO  api started port=8080 env=local
-INFO  invoice generated invoice_id=inv_123 customer_id=cus_456
-WARN  payment pending payment_id=pay_789 retry_in=30s
-ERROR database query failed correlation_id=abc-123 err="timeout"
+INFO  api starting app_name=atlas-erp-core app_env=local app_port=8080
+INFO  http request completed method=GET path=/health status_code=200 correlation_id=abc123
+ERROR ping postgres failed correlation_id=abc123 err="timeout"
 ```
 
 ---
@@ -408,50 +431,7 @@ Todos os diagramas devem ser mantidos em `docs/diagrams/`.
   - C3: componentes
 - Atualizar diagramas sempre que houver mudança estrutural relevante.
 
-### Exemplo C1 em Mermaid
-
-```mermaid
-flowchart LR
-    User["Usuário / Operador"] --> App["Atlas ERP Core\nModular Monolith"]
-    App --> DB["PostgreSQL"]
-    App --> Cache["Redis"]
-    App --> Obs["OTel / Observabilidade"]
-```
-
-### Exemplo C2 em Mermaid
-
-```mermaid
-flowchart TB
-    API["cmd/api\nHTTP API"]
-    Customers["internal/customers"]
-    Billing["internal/billing"]
-    Invoices["internal/invoices"]
-    Payments["internal/payments"]
-    DB["PostgreSQL"]
-    Cache["Redis"]
-
-    API --> Customers
-    API --> Billing
-    API --> Invoices
-    API --> Payments
-    Customers --> DB
-    Billing --> DB
-    Invoices --> DB
-    Payments --> DB
-    Billing --> Cache
-    Payments --> Cache
-```
-
-### Exemplo C3 em Mermaid
-
-```mermaid
-flowchart LR
-    Handler["HTTP Handler"] --> UseCase["Use Case"]
-    UseCase --> Aggregate["Aggregate / Domain"]
-    UseCase --> Repo["Repository Interface"]
-    Repo --> PgRepo["PostgreSQL Adapter"]
-    UseCase --> EventBus["Internal Event Bus"]
-```
+Os diagramas vigentes da foundation estão em `docs/diagrams/architecture.md`.
 
 ---
 
@@ -473,9 +453,13 @@ Documentar decisões, não suposições.
 
 ## Estratégia de evolução
 
+### Fase 0
+
+- Foundation técnica concluída
+
 ### Fase 1
 
-- Modular Monolith
+- Primeiro fluxo de domínio completo
 
 ### Fase 2
 
@@ -485,7 +469,7 @@ Documentar decisões, não suposições.
 
 - Sistema distribuído orientado a eventos
 
-A prioridade atual é manter fronteiras corretas, e não antecipar complexidade operacional.
+A prioridade atual é manter fronteiras corretas e introduzir domínio com disciplina, não antecipar complexidade operacional.
 
 ---
 
@@ -538,10 +522,15 @@ A prioridade atual é manter fronteiras corretas, e não antecipar complexidade 
 - Sintoma: produtores e consumidores divergem silenciosamente.
 - Solução: definir payload estável, dono do evento e versionamento quando necessário.
 
-### 7. README e CHANGELOG desatualizados
+### 7. README, CHANGELOG ou comandos desatualizados
 
-- Sintoma: setup, comandos e histórico deixam de refletir a realidade do projeto.
-- Solução: tratar documentação como parte da definição de pronto.
+- Sintoma: setup, operação e histórico deixam de refletir a realidade do projeto.
+- Solução: tratar documentação e `docs/commands.md` como parte da definição de pronto.
+
+### 8. Docker daemon indisponível
+
+- Sintoma: `make up` ou testes com `testcontainers-go` falham com `Cannot connect to the Docker daemon`.
+- Solução: iniciar o Docker Desktop ou garantir acesso ao socket do daemon antes de rodar compose, integração ou testes funcionais dependentes de container.
 
 ---
 
@@ -559,7 +548,7 @@ Atualize este arquivo sempre que houver mudança em qualquer um dos pontos abaix
 - estratégia de testes
 - observabilidade, logging ou convenções operacionais
 - comandos do `Makefile`
-- processo de documentação, ADR, `README.md` ou `CHANGELOG.md`
+- processo de documentação, ADR, `README.md`, `CHANGELOG.md` ou `docs/commands.md`
 
 Regras obrigatórias:
 
@@ -570,7 +559,7 @@ Regras obrigatórias:
 
 ---
 
-## README.md e CHANGELOG.md
+## README.md, CHANGELOG.md e comandos
 
 ### README.md
 
@@ -584,6 +573,7 @@ O `README.md` deve ser criado e mantido como documentação operacional do proje
 - comandos principais
 - estrutura de módulos
 - estratégia de testes
+- status atual de fase
 
 Toda mudança relevante de setup, arquitetura, módulos, comandos ou observabilidade exige atualização do `README.md`.
 
@@ -607,18 +597,24 @@ Categorias sugeridas:
 
 Nenhuma feature estrutural, alteração de contrato, novo módulo ou mudança operacional relevante deve ser entregue sem atualização do `CHANGELOG.md`.
 
+### docs/commands.md
+
+Deve existir um markdown com os principais comandos operacionais do projeto e ele deve ser mantido atualizado sempre que um fluxo recorrente for criado ou alterado.
+
 ---
 
 ## Comandos principais
 
-O projeto deve centralizar automações no `Makefile` sempre que possível. Esta seção deve ser mantida atualizada conforme os comandos forem sendo implementados.
+O projeto deve centralizar automações no `Makefile` sempre que possível.
 
-Comandos baseline esperados:
+Comandos baseline vigentes:
 
 ```makefile
 make setup
 make up
 make down
+make run
+make build
 make fmt
 make lint
 make test
@@ -627,14 +623,13 @@ make test-integration
 make test-functional
 make migrate-up
 make migrate-down
-make run
 ```
 
 Regras:
 
 - Preferir `make <target>` a comandos longos de ferramenta.
 - Ao adicionar um novo fluxo operacional recorrente, expor esse fluxo no `Makefile`.
-- Atualizar `README.md` e `CHANGELOG.md` quando novos comandos forem introduzidos ou alterados.
+- Atualizar `README.md`, `CHANGELOG.md` e `docs/commands.md` quando novos comandos forem introduzidos ou alterados.
 
 ---
 
@@ -652,6 +647,7 @@ Toda mudança relevante deve verificar:
 - `AGENTS.md` revisado e atualizado quando necessário
 - `README.md` atualizado
 - `CHANGELOG.md` atualizado
+- `docs/commands.md` atualizado se houver mudança operacional
 - ADR criada ou revisada se houver decisão estrutural
 - diagramas Mermaid e C4 atualizados quando houver impacto arquitetural
 

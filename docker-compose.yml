@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atlas-erp-core-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-atlas}
+      POSTGRES_USER: ${DB_USER:-atlas}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-atlas}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-atlas} -d ${DB_NAME:-atlas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: atlas-erp-core-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_NAME: ${APP_NAME:-atlas-erp-core}
+      APP_ENV: ${APP_ENV:-local}
+      APP_PORT: ${APP_PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORRELATION_ID_HEADER: ${CORRELATION_ID_HEADER:-X-Correlation-ID}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-atlas}
+      DB_PASSWORD: ${DB_PASSWORD:-atlas}
+      DB_NAME: ${DB_NAME:-atlas}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  postgres_data:
