@@ -37,6 +37,9 @@ Esta fase entrega apenas a fundacao tecnica:
 
 ```text
 .
+├── .agents/
+│   ├── roles/
+│   └── skills/
 ├── cmd/
 │   ├── api/
 │   └── migrate/
@@ -161,6 +164,7 @@ make migrate-down
 ## Documentation
 
 - Arquitetura viva: [AGENTS.md](/Users/rgomids/Projects/atlas-erp-core/AGENTS.md)
+- roles e skills do projeto: [.agents](/Users/rgomids/Projects/atlas-erp-core/.agents)
 - Comandos operacionais: [docs/commands.md](/Users/rgomids/Projects/atlas-erp-core/docs/commands.md)
 - Diagramas: [docs/diagrams/architecture.md](/Users/rgomids/Projects/atlas-erp-core/docs/diagrams/architecture.md)
 - Decisoes estruturais: [docs/adr/0001-phase-0-foundation.md](/Users/rgomids/Projects/atlas-erp-core/docs/adr/0001-phase-0-foundation.md)

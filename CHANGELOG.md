@@ -15,3 +15,4 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Repository structure now reflects the target modular monolith foundation with `internal/shared` and scaffolded bounded contexts.
+- Root `AGENTS.md` was reduced to a high-level contract and the detailed evolution rules were split into `.agents/roles` and `.agents/skills`.
