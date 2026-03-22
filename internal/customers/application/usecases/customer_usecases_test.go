@@ -8,6 +8,7 @@ import (
 
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/repositories"
+	"github.com/rgomids/atlas-erp-core/internal/customers/domain/valueobjects"
 )
 
 type customerRepositoryFake struct {
@@ -83,6 +84,75 @@ func TestCreateCustomerRejectsDuplicateDocument(t *testing.T) {
 	}
 }
 
+func TestCreateCustomerCreatesActiveCustomer(t *testing.T) {
+	t.Parallel()
+
+	repository := newCustomerRepositoryFake()
+	createCustomer := NewCreateCustomer(repository)
+	createCustomer.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
+
+	customer, err := createCustomer.Execute(context.Background(), CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "12345678900",
+		Email:    "team@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+
+	if customer.ID == "" {
+		t.Fatal("expected customer id to be generated")
+	}
+
+	if customer.Status != "Active" {
+		t.Fatalf("expected active customer, got %q", customer.Status)
+	}
+}
+
+func TestCreateCustomerRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		input       CreateCustomerInput
+		expectedErr error
+	}{
+		{
+			name: "blank name",
+			input: CreateCustomerInput{
+				Name:     "   ",
+				Document: "12345678900",
+				Email:    "team@atlas.io",
+			},
+			expectedErr: entities.ErrCustomerNameRequired,
+		},
+		{
+			name: "invalid email",
+			input: CreateCustomerInput{
+				Name:     "Atlas Co",
+				Document: "12345678900",
+				Email:    "invalid",
+			},
+			expectedErr: valueobjects.ErrInvalidEmail,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			createCustomer := NewCreateCustomer(newCustomerRepositoryFake())
+
+			_, err := createCustomer.Execute(context.Background(), testCase.input)
+			if !errors.Is(err, testCase.expectedErr) {
+				t.Fatalf("expected error %v, got %v", testCase.expectedErr, err)
+			}
+		})
+	}
+}
+
 func TestUpdateAndDeactivateCustomer(t *testing.T) {
 	t.Parallel()
 
@@ -126,5 +196,20 @@ func TestUpdateAndDeactivateCustomer(t *testing.T) {
 
 	if deactivatedCustomer.Status != "Inactive" {
 		t.Fatalf("expected inactive customer, got %q", deactivatedCustomer.Status)
+	}
+}
+
+func TestUpdateCustomerRejectsInvalidCustomerID(t *testing.T) {
+	t.Parallel()
+
+	updateCustomer := NewUpdateCustomer(newCustomerRepositoryFake())
+
+	_, err := updateCustomer.Execute(context.Background(), UpdateCustomerInput{
+		ID:    "not-a-uuid",
+		Name:  "Atlas Updated",
+		Email: "billing@atlas.io",
+	})
+	if !errors.Is(err, entities.ErrInvalidCustomerID) {
+		t.Fatalf("expected invalid customer id error, got %v", err)
 	}
 }

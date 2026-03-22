@@ -28,6 +28,23 @@ func TestPaymentTransitions(t *testing.T) {
 	}
 }
 
+func TestNewPaymentCreatesPendingPayment(t *testing.T) {
+	t.Parallel()
+
+	payment, err := NewPayment("payment-id", "invoice-id", time.Now())
+	if err != nil {
+		t.Fatalf("expected payment to be created, got %v", err)
+	}
+
+	if payment.Status() != StatusPending {
+		t.Fatalf("expected pending payment, got %q", payment.Status())
+	}
+
+	if payment.InvoiceID() != "invoice-id" {
+		t.Fatalf("expected invoice reference to be preserved, got %q", payment.InvoiceID())
+	}
+}
+
 func TestNewPaymentRequiresInvoiceReference(t *testing.T) {
 	t.Parallel()
 

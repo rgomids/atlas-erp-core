@@ -118,6 +118,24 @@ func TestProcessPaymentApprovesAndMarksInvoicePaid(t *testing.T) {
 	}
 }
 
+func TestProcessPaymentRejectsInvalidInvoiceID(t *testing.T) {
+	t.Parallel()
+
+	processPayment := NewProcessPayment(
+		newPaymentRepositoryFake(),
+		&invoicePaymentPortFake{},
+		gatewayFake{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "mock-approved"}},
+		txManagerFake{},
+	)
+
+	_, err := processPayment.Execute(context.Background(), ProcessPaymentInput{
+		InvoiceID: "invalid",
+	})
+	if !errors.Is(err, entities.ErrInvalidInvoiceReference) {
+		t.Fatalf("expected invalid invoice reference error, got %v", err)
+	}
+}
+
 func TestProcessPaymentRejectsDuplicateInvoicePayment(t *testing.T) {
 	t.Parallel()
 
@@ -195,5 +213,23 @@ func TestProcessPaymentPropagatesInvoiceErrors(t *testing.T) {
 	})
 	if !errors.Is(err, invoiceentities.ErrInvoiceNotFound) {
 		t.Fatalf("expected invoice not found error, got %v", err)
+	}
+}
+
+func TestProcessPaymentPropagatesNotPayableInvoiceError(t *testing.T) {
+	t.Parallel()
+
+	processPayment := NewProcessPayment(
+		newPaymentRepositoryFake(),
+		&invoicePaymentPortFake{getErr: invoiceentities.ErrInvoiceNotPayable},
+		gatewayFake{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "mock-approved"}},
+		txManagerFake{},
+	)
+
+	_, err := processPayment.Execute(context.Background(), ProcessPaymentInput{
+		InvoiceID: "e4b6c2b1-f835-42b7-a06c-fd2f1a455f55",
+	})
+	if !errors.Is(err, invoiceentities.ErrInvoiceNotPayable) {
+		t.Fatalf("expected invoice not payable error, got %v", err)
 	}
 }

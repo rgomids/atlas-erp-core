@@ -39,6 +39,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	slog.SetDefault(logger)
+	bootstrapLogger := logger.With(
+		slog.String("module", "bootstrap"),
+		slog.String("request_id", ""),
+	)
 
 	db, err := postgres.Open(ctx, cfg.Database)
 	if err != nil {
@@ -62,7 +67,7 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	logger.Info(
+	bootstrapLogger.Info(
 		"api starting",
 		slog.String("app_name", cfg.App.Name),
 		slog.String("app_env", cfg.App.Env),
@@ -85,7 +90,7 @@ func run() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		logger.Info("api shutting down")
+		bootstrapLogger.Info("api shutting down")
 
 		return server.Shutdown(shutdownCtx)
 	}
