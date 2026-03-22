@@ -1,8 +1,11 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadFromEnvUsesDefaults(t *testing.T) {
@@ -40,6 +43,10 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 
 	if cfg.App.CorrelationIDHeader != "X-Correlation-ID" {
 		t.Fatalf("expected default correlation header, got %q", cfg.App.CorrelationIDHeader)
+	}
+
+	if cfg.Payments.GatewayTimeout != 2*time.Second {
+		t.Fatalf("expected default gateway timeout, got %s", cfg.Payments.GatewayTimeout)
 	}
 }
 
@@ -81,5 +88,69 @@ func TestConnectionStringBuildsExpectedURL(t *testing.T) {
 
 	if !strings.Contains(connection, "sslmode=disable") {
 		t.Fatalf("expected connection string to include sslmode, got %q", connection)
+	}
+}
+
+func TestLoadFromEnvRejectsUnsupportedAppEnv(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFromEnv(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_PORT":    "8080",
+			"APP_ENV":     "qa",
+			"DB_HOST":     "localhost",
+			"DB_PORT":     "5432",
+			"DB_USER":     "atlas",
+			"DB_PASSWORD": "atlas",
+			"DB_NAME":     "atlas",
+		}
+
+		value, ok := values[key]
+		return value, ok
+	})
+	if err == nil {
+		t.Fatal("expected unsupported APP_ENV to fail")
+	}
+}
+
+func TestNewEnvLookupAppliesEnvSpecificOverlay(t *testing.T) {
+	tempDir := t.TempDir()
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working dir: %v", err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(originalDir); chdirErr != nil {
+			t.Fatalf("restore working dir: %v", chdirErr)
+		}
+	}()
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("change working dir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("APP_ENV=test\nDB_HOST=base-host\n"), 0o600); err != nil {
+		t.Fatalf("write base env: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempDir, ".env.test"), []byte("DB_HOST=overlay-host\nPAYMENT_GATEWAY_TIMEOUT_MS=3500\n"), 0o600); err != nil {
+		t.Fatalf("write env overlay: %v", err)
+	}
+
+	lookup, err := newEnvLookup(func(string) (string, bool) {
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("new env lookup: %v", err)
+	}
+
+	host, ok := lookup("DB_HOST")
+	if !ok || host != "overlay-host" {
+		t.Fatalf("expected DB_HOST from overlay, got %q", host)
+	}
+
+	timeout, ok := lookup("PAYMENT_GATEWAY_TIMEOUT_MS")
+	if !ok || timeout != "3500" {
+		t.Fatalf("expected PAYMENT_GATEWAY_TIMEOUT_MS from overlay, got %q", timeout)
 	}
 }

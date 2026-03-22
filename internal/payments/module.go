@@ -1,6 +1,8 @@
 package payments
 
 import (
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,11 +22,16 @@ type Module struct {
 	handler paymentshttp.Handler
 }
 
+type ModuleConfig struct {
+	GatewayTimeout time.Duration
+}
+
 func NewModule(
 	pool *pgxpool.Pool,
 	billingPort billingports.PaymentCompatibilityPort,
 	bus sharedevent.EventBus,
 	gateway ports.PaymentGateway,
+	config ModuleConfig,
 ) Module {
 	repository := persistence.NewPostgresRepository(pool)
 	if gateway == nil {
@@ -36,6 +43,7 @@ func NewModule(
 		gateway,
 		sharedpostgres.NewTxManager(pool),
 		bus,
+		config.GatewayTimeout,
 	)
 	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "payments", handlers.NewBillingRequested(processBillingRequest))
 

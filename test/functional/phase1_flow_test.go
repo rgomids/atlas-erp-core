@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,6 +21,7 @@ import (
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
+	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 	"github.com/rgomids/atlas-erp-core/test/support"
 )
@@ -269,6 +271,9 @@ func TestPhase3HTTPLogsEventsWithEmitterAndConsumerModules(t *testing.T) {
 		`"emitter_module":"invoices"`,
 		`"consumer_module":"billing"`,
 		`"consumer_module":"payments"`,
+		`"invoice_id":"`,
+		`"customer_id":"`,
+		`"attempt_number":1`,
 		`"request_id":"req-functional-003"`,
 	} {
 		if !strings.Contains(logOutput, fragment) {
@@ -277,7 +282,119 @@ func TestPhase3HTTPLogsEventsWithEmitterAndConsumerModules(t *testing.T) {
 	}
 }
 
+func TestPhase4HTTPAutomaticTimeoutKeepsInvoicePendingAndReturnsCreatedInvoice(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	server := newFunctionalServerWithTimeout(t, pool, integration.NewMockGatewayWithDelay("Approved", 25*time.Millisecond), &bytes.Buffer{}, 5*time.Millisecond)
+	defer server.Close()
+
+	customerResponse := postJSON(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSON(t, server.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`)
+	if invoiceResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected invoice creation status 201, got %d", invoiceResponse.StatusCode)
+	}
+
+	var invoice struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, invoiceResponse, &invoice)
+
+	listResponse, err := server.Client().Get(server.URL + "/customers/" + customer.ID + "/invoices")
+	if err != nil {
+		t.Fatalf("list invoices after timeout: %v", err)
+	}
+	defer listResponse.Body.Close()
+
+	var invoicesPayload struct {
+		Items []struct {
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&invoicesPayload); err != nil {
+		t.Fatalf("decode invoices after timeout: %v", err)
+	}
+
+	if invoicesPayload.Items[0].Status != "Pending" {
+		t.Fatalf("expected pending invoice after gateway timeout, got %q", invoicesPayload.Items[0].Status)
+	}
+}
+
+func TestPhase4HTTPManualRetryReturnsFailedPayloadOnTechnicalFailure(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	failedServer := newFunctionalServer(t, pool, integration.NewMockGatewayWithStatus("Failed"), &bytes.Buffer{})
+	defer failedServer.Close()
+
+	customerResponse := postJSON(t, failedServer.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSON(t, failedServer.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`)
+	var invoice struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, invoiceResponse, &invoice)
+
+	timeoutServer := newFunctionalServerWithTimeout(t, pool, integration.NewMockGatewayWithDelay("Approved", 25*time.Millisecond), &bytes.Buffer{}, 5*time.Millisecond)
+	defer timeoutServer.Close()
+
+	paymentResponse := postJSON(t, timeoutServer.URL+"/payments", `{"invoice_id":"`+invoice.ID+`"}`)
+	if paymentResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected manual retry status 201, got %d", paymentResponse.StatusCode)
+	}
+
+	var payment struct {
+		Status          string `json:"status"`
+		FailureCategory string `json:"failure_category"`
+		AttemptNumber   int    `json:"attempt_number"`
+	}
+	decodeResponse(t, paymentResponse, &payment)
+
+	if payment.Status != "Failed" {
+		t.Fatalf("expected failed payment, got %q", payment.Status)
+	}
+
+	if payment.FailureCategory != "gateway_timeout" {
+		t.Fatalf("expected gateway_timeout failure category, got %q", payment.FailureCategory)
+	}
+
+	if payment.AttemptNumber != 2 {
+		t.Fatalf("expected retry attempt number 2, got %d", payment.AttemptNumber)
+	}
+}
+
 func newFunctionalServer(t *testing.T, pool *pgxpool.Pool, gateway paymentports.PaymentGateway, logWriter *bytes.Buffer) *httptest.Server {
+	return newFunctionalServerWithTimeout(t, pool, gateway, logWriter, time.Second)
+}
+
+func newFunctionalServerWithTimeout(t *testing.T, pool *pgxpool.Pool, gateway paymentports.PaymentGateway, logWriter *bytes.Buffer, timeout time.Duration) *httptest.Server {
 	t.Helper()
 
 	logger, err := logging.NewWithWriter("info", logWriter)
@@ -285,11 +402,13 @@ func newFunctionalServer(t *testing.T, pool *pgxpool.Pool, gateway paymentports.
 		t.Fatalf("create logger: %v", err)
 	}
 
-	eventBus := sharedevent.NewSyncBus()
+	eventBus := sharedevent.NewSyncBus(outbox.NewPostgresRecorder(pool))
 	customerModule := customers.NewModule(pool, eventBus)
 	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
 	billingModule := billing.NewModule(pool, eventBus)
-	paymentModule := payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway)
+	paymentModule := payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway, payments.ModuleConfig{
+		GatewayTimeout: timeout,
+	})
 
 	return httptest.NewServer(httpapi.NewRouter(
 		logger,

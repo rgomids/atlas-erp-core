@@ -17,6 +17,7 @@ import (
 
 type CreateBillingFromInvoiceInput struct {
 	InvoiceID   string
+	CustomerID  string
 	AmountCents int64
 	DueDate     time.Time
 }
@@ -39,6 +40,9 @@ func (usecase CreateBillingFromInvoice) Execute(ctx context.Context, input Creat
 	if _, err := uuid.Parse(input.InvoiceID); err != nil {
 		return ports.BillingSnapshot{}, entities.ErrInvalidInvoiceReference
 	}
+	if _, err := uuid.Parse(input.CustomerID); err != nil {
+		return ports.BillingSnapshot{}, entities.ErrInvalidCustomerReference
+	}
 
 	existing, err := usecase.repository.GetByInvoiceID(ctx, input.InvoiceID)
 	switch {
@@ -48,7 +52,7 @@ func (usecase CreateBillingFromInvoice) Execute(ctx context.Context, input Creat
 		return ports.BillingSnapshot{}, err
 	}
 
-	billing, err := entities.NewBilling(uuid.NewString(), input.InvoiceID, input.AmountCents, input.DueDate, usecase.now())
+	billing, err := entities.NewBilling(uuid.NewString(), input.InvoiceID, input.CustomerID, input.AmountCents, input.DueDate, usecase.now())
 	if err != nil {
 		return ports.BillingSnapshot{}, err
 	}
@@ -67,10 +71,12 @@ func (usecase CreateBillingFromInvoice) Execute(ctx context.Context, input Creat
 	}
 
 	if err := sharedevent.Publish(ctx, usecase.bus, "billing", billingevents.BillingRequested{
-		BillingID:   billing.ID(),
-		InvoiceID:   billing.InvoiceID(),
-		AmountCents: billing.AmountCents(),
-		DueDate:     billing.DueDate(),
+		BillingID:     billing.ID(),
+		InvoiceID:     billing.InvoiceID(),
+		CustomerID:    billing.CustomerID(),
+		AmountCents:   billing.AmountCents(),
+		DueDate:       billing.DueDate(),
+		AttemptNumber: billing.AttemptNumber(),
 	}); err != nil {
 		return ports.BillingSnapshot{}, err
 	}

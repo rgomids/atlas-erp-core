@@ -6,7 +6,7 @@
 
 ## Fase atual
 
-**Phase 3 - Event-Driven Internal**
+**Phase 4 - Resilience & Maturity**
 
 Estado de referencia desta fase:
 
@@ -15,6 +15,10 @@ Estado de referencia desta fase:
 - endurecimento tecnico da Phase 2 continua valido
 - comunicacao entre modulos agora prioriza **eventos internos in-process**
 - observabilidade por request e por evento esta consolidada com `request_id`
+- pagamentos e handlers financeiros operam com **idempotencia por tentativa**
+- retry manual e controlado usa `attempt_number`
+- timeout de gateway e falhas tecnicas passam a gerar tentativa auditavel em `Failed`
+- preparacao inicial de consistencia eventual existe via `outbox_events`
 - modulos ativos: `customers`, `invoices`, `billing`, `payments`
 
 O `README.md` deve sempre refletir a fase atual. Quando a fase mudar, atualizar tambem `.agents/templates/phase-status.md` ou o artefato de status adotado pelo repositorio.
@@ -32,7 +36,7 @@ Ele define como trabalhar no repositorio, quais artefatos carregar por demanda e
 - integracao entre camadas: **Ports and Adapters**
 - comunicacao entre modulos: **Internal Event-Driven Communication**
 - persistencia: **PostgreSQL** com ownership logico por modulo
-- observabilidade: logging JSON, `request_id`, `event`, `emitter_module`, `consumer_module` e erro HTTP canonico
+- observabilidade: logging JSON, `request_id`, `event`, `emitter_module`, `consumer_module`, ids de dominio e erro HTTP canonico
 - contrato de fluxo atual:
 
 ```text
@@ -42,7 +46,7 @@ Create Customer -> Create Invoice -> InvoiceCreated -> BillingRequested -> Payme
 - caminho de compatibilidade:
 
 ```text
-POST /payments -> reprocessa billing existente apos PaymentFailed
+POST /payments -> reprocessa billing existente apos PaymentFailed ou falha tecnica de gateway
 ```
 
 ## Stack tecnologico completo
@@ -52,6 +56,7 @@ POST /payments -> reprocessa billing existente apos PaymentFailed
 - `log/slog` para logging estruturado
 - `godotenv` para bootstrap de `.env`
 - Event bus interno sincronico em `internal/shared/event`
+- Recorder tecnico de outbox em `internal/shared/outbox`
 - PostgreSQL
 - `pgx/v5` para acesso ao banco
 - `golang-migrate` para migrations
@@ -106,6 +111,7 @@ Carregue o minimo suficiente para executar com seguranca:
 | `APP_ENV` | Nao | `local` | Ambiente atual |
 | `LOG_LEVEL` | Nao | `info` | Nivel de log estruturado |
 | `CORRELATION_ID_HEADER` | Nao | `X-Correlation-ID` | Header usado para propagar `request_id` |
+| `PAYMENT_GATEWAY_TIMEOUT_MS` | Nao | `2000` | Timeout maximo do gateway de pagamento por tentativa |
 
 ## Estrutura do diretorio de conteudo
 
@@ -130,6 +136,7 @@ Carregue o minimo suficiente para executar com seguranca:
 │   │   ├── event/
 │   │   ├── http/
 │   │   ├── logging/
+│   │   ├── outbox/
 │   │   └── postgres/
 │   ├── customers/
 │   ├── invoices/
@@ -149,7 +156,7 @@ Carregue o minimo suficiente para executar com seguranca:
 
 ### Shared
 
-- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `postgres`, `event`
+- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `postgres`, `event`, `outbox`
 - jobs: nenhum
 - models: apenas primitives tecnicas e utilitarios transversais estaveis
 
@@ -169,13 +176,13 @@ Carregue o minimo suficiente para executar com seguranca:
 
 - services/use cases: `CreateBillingFromInvoice`, `GetProcessableBillingByInvoiceID`, `MarkBillingApproved`, `MarkBillingFailed`
 - jobs: nenhum
-- models: `Billing`
+- models: `Billing` com `attempt_number` e `customer_id`
 
 ### Payments
 
 - services/use cases: `ProcessBillingRequest`, `ProcessPayment`
 - jobs: nenhum
-- models: `Payment`
+- models: `Payment` com `attempt_number`, `idempotency_key` e `failure_category`
 
 ## Como usar `.agents`
 
@@ -233,8 +240,10 @@ Carregue o minimo suficiente para executar com seguranca:
 - Ports and Adapters
 - Repository Pattern
 - Internal Event Bus Pattern
+- Idempotent Consumer Pattern
 - Transaction boundary local para fluxos financeiros
 - Request-scoped e event-scoped logging com `request_id`
+- Outbox Pattern preparado de forma inicial
 - Error mapping explicito entre dominio, aplicacao e HTTP
 
 ## Common hurdles
@@ -257,7 +266,17 @@ Carregue o minimo suficiente para executar com seguranca:
 ### Retry manual sem billing existente
 
 - sintoma: `POST /payments` retorna `billing_not_found`
-- acao: validar se a invoice foi criada na Phase 3 e se a cobranca foi persistida antes do retry
+- acao: validar se a invoice foi criada no fluxo oficial e se a cobranca foi persistida antes do retry
+
+### Timeout de gateway
+
+- sintoma: tentativa em `Failed` com `failure_category=gateway_timeout`
+- acao: revisar `PAYMENT_GATEWAY_TIMEOUT_MS`, adapter do gateway e a categoria persistida em `payments`
+
+### Duplicacao de evento financeiro
+
+- sintoma: o mesmo `BillingRequested` reaparece
+- acao: validar `attempt_number`, `idempotency_key` e a unicidade em `payments (billing_id, attempt_number)`
 
 ### Divergencia entre docs e implementacao
 
@@ -358,6 +377,7 @@ Regras complementares:
 - revisar `CHANGELOG.md`
 - revisar `docs/commands.md`
 - revisar `docs/diagrams/architecture.md`
+- revisar `docs/adr/`
 - revisar `.agents/templates/phase-status.md`
 
 ## Quando consultar codigo, docs ou integracoes

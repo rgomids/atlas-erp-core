@@ -24,10 +24,12 @@ func (handler BillingRequested) Handle(ctx context.Context, event sharedevent.Ev
 	}
 
 	_, err := handler.processBillingRequest.Execute(ctx, usecases.ProcessBillingRequestInput{
-		BillingID:   domainEvent.BillingID,
-		InvoiceID:   domainEvent.InvoiceID,
-		AmountCents: domainEvent.AmountCents,
-		DueDate:     domainEvent.DueDate,
+		BillingID:     domainEvent.BillingID,
+		InvoiceID:     domainEvent.InvoiceID,
+		CustomerID:    domainEvent.CustomerID,
+		AmountCents:   domainEvent.AmountCents,
+		DueDate:       domainEvent.DueDate,
+		AttemptNumber: domainEvent.AttemptNumber,
 	})
 	return err
 }

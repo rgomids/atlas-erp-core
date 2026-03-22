@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-03-21
+
+### Added
+
+- `attempt_number` control in `billings` and `payments`, plus persisted `idempotency_key` and `failure_category` for payment attempts.
+- `outbox_events` table and recorder integration in the synchronous event bus.
+- Gateway timeout configuration through `PAYMENT_GATEWAY_TIMEOUT_MS` and optional `.env.<APP_ENV>` overlay loading.
+- Unit, integration and functional coverage for duplicate event handling, gateway timeout classification and outbox recording.
+- ADR documenting the Phase 4 resilience decisions.
+
+### Changed
+
+- Project status moved from Phase 3 to Phase 4 - Resilience & Maturity.
+- `POST /payments` now returns `201` with a failed payment payload when the gateway fails technically, instead of surfacing a transport error.
+- Automatic payment processing now reserves a pending attempt before calling the gateway, preventing duplicate execution for the same `(billing_id, attempt_number)`.
+- Billing retry now advances `attempt_number` only when retry is legitimate and keeps approved billings blocked.
+- Logs now include domain identifiers, `attempt_number`, `idempotency_key` and `failure_category`.
+
+### Fixed
+
+- Reprocessing the same `BillingRequested` no longer issues duplicate payment execution.
+- Technical gateway failures no longer break the invoice creation flow; the invoice stays persisted and retryable.
+
 ## [0.4.0] - 2026-03-21
 
 ### Added

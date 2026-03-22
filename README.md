@@ -8,17 +8,18 @@ Atlas ERP Core e um ERP backend em Go modelado como modular monolith, com DDD, C
 
 ## Project Status
 
-Current Phase: **Phase 3 - Event-Driven Internal**
+Current Phase: **Phase 4 - Resilience & Maturity**
 
-## Phase 3 Delivery
+## Phase 4 Delivery
 
-Esta fase substitui o acoplamento sincrono entre modulos por um fluxo interno baseado em eventos in-process:
+Esta fase endurece o fluxo financeiro sem trocar a arquitetura base:
 
-- `SyncBus` sincronico em `internal/shared/event`
-- `POST /invoices` agora dispara o fluxo principal `InvoiceCreated -> BillingRequested -> PaymentApproved/PaymentFailed`
-- `POST /payments` permanece como caminho manual de compatibilidade e retry funcional apos falha
-- `billing` deixa de ser scaffold e passa a participar do fluxo principal
-- logs estruturados passam a registrar `event`, `emitter_module`, `consumer_module` e `request_id`
+- `billing` controla `attempt_number` por invoice e libera retry seguro
+- `payments` reserva a tentativa antes do gateway e reaproveita execucao existente por `(billing_id, attempt_number)`
+- falha tecnica do gateway vira tentativa persistida em `Failed`, com `failure_category`
+- `POST /payments` continua sendo o caminho manual de retry, mas agora responde `201` mesmo quando a tentativa falha tecnicamente
+- `outbox_events` registra os eventos emitidos como preparacao para consistencia eventual
+- logs estruturados passam a registrar ids de dominio, `attempt_number`, `idempotency_key` e `failure_category`
 
 O fluxo principal agora e:
 
@@ -32,7 +33,8 @@ O fluxo principal agora e:
 - Comunicacao entre modulos: Event bus interno sincronico
 - Runtime atual: um unico processo HTTP em Go
 - Persistencia: PostgreSQL
-- Observabilidade da Phase 3: logging JSON com `module`, `event`, `emitter_module`, `consumer_module` e `request_id`
+- Resiliencia da Phase 4: idempotencia por tentativa, retry controlado, timeout configuravel de gateway e preparacao inicial de outbox
+- Observabilidade da Phase 4: logging JSON com `module`, `event`, `emitter_module`, `consumer_module`, ids de dominio e `request_id`
 
 ## Implemented Modules
 
@@ -55,14 +57,21 @@ O fluxo principal agora e:
 - Aggregate: `Billing`
 - Use cases: `CreateBillingFromInvoice`, `GetProcessableBillingByInvoiceID`, `MarkBillingApproved`, `MarkBillingFailed`
 - Evento publicado: `BillingRequested`
-- Regras principais: uma cobranca por invoice, reativacao de cobranca falha para retry manual, status `Requested`, `Failed` e `Approved`
+- Regras principais: uma cobranca por invoice, `attempt_number` monotonicamente crescente, reativacao segura apos `Failed`, status `Requested`, `Failed` e `Approved`
 
 ### Payments
 
 - Aggregate: `Payment`
 - Use cases: `ProcessBillingRequest`, `ProcessPayment`
 - Eventos publicados: `PaymentApproved`, `PaymentFailed`
-- Regras principais: uma tentativa por execucao, retry permitido apos `Failed`, no maximo um `Approved` por invoice
+- Regras principais: idempotencia por `(billing_id, attempt_number)`, `idempotency_key` persistida, retry permitido apos `Failed`, no maximo um `Approved` por invoice
+
+## Resilience Notes
+
+- **Idempotencia:** reprocessar o mesmo `BillingRequested` nao dispara uma nova chamada ao gateway; a execucao persistida e reutilizada.
+- **Retry controlado:** `billing` avanca `attempt_number` apenas quando a cobranca estava `Failed`; `Approved` continua bloqueando retry.
+- **Falha tecnica:** timeout ou erro do gateway gera `PaymentFailed` persistido com `failure_category=gateway_timeout|gateway_error`, mantendo a invoice em `Pending`.
+- **Outbox inicial:** todo evento publicado tambem e registrado em `outbox_events` com `payload`, `request_id` e `emitter_module`. Ainda nao existe dispatcher assincrono nesta fase.
 
 ## Internal Event Catalog
 
@@ -138,6 +147,7 @@ O fluxo principal agora e:
 │       ├── event/
 │       ├── http/
 │       ├── logging/
+│       ├── outbox/
 │       └── postgres/
 ├── migrations/
 ├── test/
@@ -156,6 +166,7 @@ O fluxo principal agora e:
 - `log/slog` for structured logging
 - `godotenv` for `.env` loading
 - Internal synchronous event bus
+- Outbox event recorder stored in PostgreSQL
 - PostgreSQL
 - `pgx/v5` for database access
 - `golang-migrate` for migrations
@@ -177,6 +188,7 @@ O fluxo principal agora e:
 | `APP_ENV` | No | `local` | Current environment |
 | `LOG_LEVEL` | No | `info` | Structured log level |
 | `CORRELATION_ID_HEADER` | No | `X-Correlation-ID` | Header propagated across requests and logs |
+| `PAYMENT_GATEWAY_TIMEOUT_MS` | No | `2000` | Maximum gateway processing time per payment attempt in milliseconds |
 
 ## Local Setup
 
@@ -190,6 +202,11 @@ Prerequisites:
 ```bash
 make setup
 ```
+
+Optional environment overlays:
+
+- `.env.local` for local runtime customization
+- `.env.test` for isolated test overrides when `APP_ENV=test`
 
 2. Start the local stack:
 
@@ -235,6 +252,16 @@ curl -X POST http://localhost:8080/payments \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
+If the gateway times out or fails technically, the response still returns `201` with a failed attempt payload:
+
+```json
+{
+  "status": "Failed",
+  "attempt_number": 2,
+  "failure_category": "gateway_timeout"
+}
+```
+
 7. Stop the stack:
 
 ```bash
@@ -267,8 +294,8 @@ make migrate-down
 
 - Domain: entities, value objects, idempotency and status transitions
 - Application: use cases and event handlers for invoice creation, billing generation, payment processing and manual retry
-- Integration: PostgreSQL real via `testcontainers-go`, cobrindo invoice -> billing -> payment -> invoice paid
-- Functional: HTTP contract, canonical error payload, automatic event-driven flow and manual retry path
+- Integration: PostgreSQL real via `testcontainers-go`, cobrindo idempotencia, retry, timeout tecnico e gravacao em `outbox_events`
+- Functional: HTTP contract, canonical error payload, fluxo automatico, retry manual e falha tecnica retornando `201 + Failed`
 
 ### How to Run Tests
 
@@ -283,6 +310,7 @@ make test
 
 - logs are emitted as JSON through `slog`
 - every request carries a `request_id`
-- event logs include at least `event`, `module`, `emitter_module`, `consumer_module` and `request_id`
+- event logs include at least `event`, `module`, `emitter_module`, `consumer_module`, `invoice_id`, `billing_id`, `payment_id`, `customer_id`, `attempt_number` and `request_id`
 - `request_id` is sourced from `X-Correlation-ID` when present, otherwise generated at the edge
 - internal failures return generic `internal_error` without leaking technical details
+- emitted events are also persisted in `outbox_events` with JSON payload for future eventual-consistency workflows

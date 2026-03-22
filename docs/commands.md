@@ -2,6 +2,12 @@
 
 Este arquivo centraliza os principais comandos operacionais do projeto e deve ser atualizado sempre que novos fluxos recorrentes forem introduzidos.
 
+## Configuracao por ambiente
+
+- `.env` continua sendo a base local
+- `.env.<APP_ENV>` e carregado como overlay opcional
+- `PAYMENT_GATEWAY_TIMEOUT_MS` controla o timeout por tentativa de pagamento
+
 ## Setup e runtime
 
 ```bash
@@ -86,6 +92,16 @@ curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-006' \
   -d '{"invoice_id":"<invoice-id>"}'
+```
+
+Resposta possivel em falha tecnica do gateway:
+
+```json
+{
+  "status": "Failed",
+  "attempt_number": 2,
+  "failure_category": "gateway_timeout"
+}
 ```
 
 ## Contrato de erro canonico

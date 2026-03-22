@@ -6,15 +6,15 @@ Controlar evolucao por fase sem misturar endurecimento tecnico, comunicacao even
 
 ## Fase atual
 
-**Phase 3 - Event-Driven Internal**
+**Phase 4 - Resilience & Maturity**
 
 ## Escopo permitido nesta fase
 
-- introduzir e consolidar event bus interno sincronico
-- ativar `billing` como modulo operacional do fluxo principal
-- remover acoplamentos diretos entre modulos quando houver alternativa por evento
-- permitir retry manual apos `PaymentFailed`
-- reforcar testes, observabilidade por evento e documentacao da fase
+- endurecer idempotencia em fluxos financeiros
+- controlar retry manual e tecnico com `attempt_number`
+- isolar timeout e falhas de gateway sem quebrar o fluxo principal
+- preparar persistencia de eventos via `outbox_events`
+- reforcar logs de dominio, testes de resiliencia e documentacao da fase
 
 ## Fora do escopo por padrao
 
@@ -24,7 +24,7 @@ Sem decisao explicita adicional, nao iniciar como trabalho principal:
 - adocao de Redis como dependencia mandatoria
 - OpenTelemetry como runtime obrigatorio nesta fase
 - integracoes externas reais que ainda nao tenham contrato claro
-- mensageria externa, CQRS ou outbox como trabalho principal
+- mensageria externa, CQRS ou outbox assincrono como trabalho principal
 - paralelizacao agressiva de agentes sem particao de dominio
 - automacao de autoevolucao de rules/skills sem revisao humana
 

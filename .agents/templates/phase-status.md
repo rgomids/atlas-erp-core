@@ -2,51 +2,51 @@
 
 ## Fase corrente
 
-- Nome: Phase 3 - Event-Driven Internal
+- Nome: Phase 4 - Resilience & Maturity
 - Status: active
 
 ## Objetivo da fase
 
-Reduzir acoplamento entre modulos com eventos internos in-process, ativar `billing` no fluxo principal e preparar o sistema para resiliencia e evolucao distribuida futura.
+Tornar o fluxo financeiro resiliente e previsivel com idempotencia por tentativa, retry controlado, timeout de gateway, outbox inicial e logs ricos em contexto.
 
 ## Escopo permitido
 
-- introduzir event bus interno sincronico
-- substituir orquestracao direta entre modulos por eventos internos
-- ativar `billing` com persistencia e handlers
-- permitir retry manual apos `PaymentFailed`
-- reforcar observabilidade por evento e documentacao da nova fase
+- aplicar idempotencia real em `payments`
+- controlar retry em `billing` e `payments` com `attempt_number`
+- persistir falhas tecnicas como tentativa auditavel
+- preparar `outbox_events` sem worker assincrono
+- reforcar logs, config e testes de resiliencia
 
 ## Entregaveis esperados
 
-- fluxo principal disparado por `POST /invoices` e fechado por eventos internos
-- `billing` persistido e integrado ao ciclo financeiro
-- pagamentos com multiplas tentativas e unicidade apenas para `Approved`
-- logs com `event`, `emitter_module`, `consumer_module` e `request_id`
-- README, AGENTS, commands, diagrams, ADR e changelog atualizados
+- duplicacao do mesmo evento financeiro nao gera nova execucao
+- retry manual reutiliza `billing` e avanca `attempt_number`
+- falha de gateway resulta em `PaymentFailed` persistido e invoice ainda `Pending`
+- `outbox_events` registra eventos emitidos
+- README, AGENTS, commands, diagrams, ADR e changelog atualizados para Phase 4
 
 ## Criterios de conclusao
 
-- event bus interno funcional e coberto por testes
-- fluxo automatico e retry manual estao verdes ponta a ponta
-- billing deixa de ser scaffold e participa do runtime oficial
-- documentacao critica reflete a arquitetura da Phase 3
+- pagamentos nao duplicam por reprocessamento do mesmo evento
+- fluxo automatico e retry manual toleram timeout/falha tecnica do gateway
+- outbox inicial existe e esta coberto por validacao
+- documentacao critica reflete a arquitetura e a operacao da Phase 4
 
 ## Restricoes
 
 - nao introduzir Kafka, SQS ou qualquer mensageria externa
-- nao implementar outbox pattern nesta fase
+- nao ativar worker ou dispatch assincrono do outbox nesta fase
 - nao migrar para microservices
-- nao adicionar goroutines complexas ou persistencia de eventos
+- nao implementar backoff exponencial complexo ou scheduler dedicado
 
 ## Riscos aceitos
 
-- `InvoiceCreated` e publicado fora da transacao de criacao da invoice
-- falha tecnica downstream ainda pode devolver erro HTTP com invoice ja persistida
-- retry automatico e resiliencia avancada continuam fora da fase
+- `InvoiceCreated` continua sendo publicado apos persistencia local da invoice
+- o outbox ainda nao possui dispatcher assincrono
+- tracing e metricas de runtime aprofundadas ficam para a fase seguinte
 
 ## Proximos marcos
 
-- avaliar outbox e retry tecnico para eventos internos
+- ativar processamento assincrono do outbox quando houver pressao real
 - aprofundar observabilidade com metricas e tracing
-- preparar criterios e contratos para possivel extracao de modulos
+- preparar contratos para consistencia eventual entre modulos

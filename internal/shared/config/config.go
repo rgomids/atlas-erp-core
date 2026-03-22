@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	App      AppConfig
 	Database DatabaseConfig
+	Payments PaymentsConfig
 }
 
 type AppConfig struct {
@@ -32,12 +34,19 @@ type DatabaseConfig struct {
 	Name     string
 }
 
+type PaymentsConfig struct {
+	GatewayTimeout time.Duration
+}
+
 type lookupFunc func(string) (string, bool)
 
 func Load() (Config, error) {
-	_ = godotenv.Load()
+	lookup, err := newEnvLookup(os.LookupEnv)
+	if err != nil {
+		return Config{}, err
+	}
 
-	return loadFromEnv(os.LookupEnv)
+	return loadFromEnv(lookup)
 }
 
 func loadFromEnv(lookup lookupFunc) (Config, error) {
@@ -71,6 +80,11 @@ func loadFromEnv(lookup lookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
+	gatewayTimeoutMS, err := optionalInt(lookup, "PAYMENT_GATEWAY_TIMEOUT_MS", 2000)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		App: AppConfig{
 			Name:                optionalString(lookup, "APP_NAME", "atlas-erp-core"),
@@ -86,6 +100,9 @@ func loadFromEnv(lookup lookupFunc) (Config, error) {
 			Password: dbPassword,
 			Name:     dbName,
 		},
+		Payments: PaymentsConfig{
+			GatewayTimeout: time.Duration(gatewayTimeoutMS) * time.Millisecond,
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -100,12 +117,20 @@ func (cfg Config) validate() error {
 		return errors.New("APP_PORT must be greater than zero")
 	}
 
+	if !isSupportedAppEnv(cfg.App.Env) {
+		return fmt.Errorf("APP_ENV must be one of local, test, dev, staging or production")
+	}
+
 	if cfg.Database.Port <= 0 {
 		return errors.New("DB_PORT must be greater than zero")
 	}
 
 	if strings.TrimSpace(cfg.App.CorrelationIDHeader) == "" {
 		return errors.New("CORRELATION_ID_HEADER cannot be blank")
+	}
+
+	if cfg.Payments.GatewayTimeout <= 0 {
+		return errors.New("PAYMENT_GATEWAY_TIMEOUT_MS must be greater than zero")
 	}
 
 	return nil
@@ -158,4 +183,89 @@ func optionalString(lookup lookupFunc, key, fallback string) string {
 	}
 
 	return value
+}
+
+func optionalInt(lookup lookupFunc, key string, fallback int) (int, error) {
+	value, ok := lookup(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid integer", key)
+	}
+
+	return parsed, nil
+}
+
+func newEnvLookup(process lookupFunc) (lookupFunc, error) {
+	baseFileValues, err := readOptionalEnvFile(".env")
+	if err != nil {
+		return nil, err
+	}
+
+	appEnv := firstNonBlank(process, baseFileValues, "APP_ENV")
+	if appEnv == "" {
+		appEnv = "local"
+	}
+
+	merged := map[string]string{}
+	mergeEnvValues(merged, baseFileValues)
+
+	envFileValues, err := readOptionalEnvFile(".env." + appEnv)
+	if err != nil {
+		return nil, err
+	}
+	mergeEnvValues(merged, envFileValues)
+
+	return func(key string) (string, bool) {
+		if value, ok := process(key); ok {
+			return value, ok
+		}
+
+		value, ok := merged[key]
+		return value, ok
+	}, nil
+}
+
+func mergeEnvValues(target map[string]string, source map[string]string) {
+	for key, value := range source {
+		target[key] = value
+	}
+}
+
+func readOptionalEnvFile(path string) (map[string]string, error) {
+	values, err := godotenv.Read(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return map[string]string{}, nil
+		}
+
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	return values, nil
+}
+
+func firstNonBlank(process lookupFunc, fileValues map[string]string, key string) string {
+	if value, ok := process(key); ok && strings.TrimSpace(value) != "" {
+		return value
+	}
+
+	value, ok := fileValues[key]
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
+}
+
+func isSupportedAppEnv(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "local", "test", "dev", "staging", "production":
+		return true
+	default:
+		return false
+	}
 }

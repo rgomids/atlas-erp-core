@@ -10,6 +10,8 @@ func ToPaymentDTO(payment entities.Payment) dto.Payment {
 		ID:               payment.ID(),
 		InvoiceID:        payment.InvoiceID(),
 		Status:           string(payment.Status()),
+		AttemptNumber:    payment.AttemptNumber(),
+		FailureCategory:  string(payment.FailureCategory()),
 		GatewayReference: payment.GatewayReference(),
 		CreatedAt:        payment.CreatedAt(),
 		UpdatedAt:        payment.UpdatedAt(),
