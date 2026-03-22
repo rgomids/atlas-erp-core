@@ -1,106 +1,49 @@
 # Skill: Foundation Runtime
 
-## Objetivo
+## Quando usar
 
-Descrever a base tecnica vigente ate a Phase 1 e as convencoes que qualquer agente deve preservar ao evoluir runtime, bootstrap, ambiente local e estrutura do repositorio.
+Use esta skill ao tocar em:
 
-## Estado vigente do runtime
+- bootstrap da API
+- configuração por ambiente
+- compose, Dockerfile e CI
+- healthcheck
+- banco, migrations e comandos principais
+- utilitários transversais em `internal/shared`
 
-- Linguagem principal: Go
-- HTTP: `chi`
-- Logging: `log/slog` com saída estruturada em JSON
-- Config local: `.env` via `godotenv`
-- Banco transacional: PostgreSQL
-- Driver/acesso: `pgx/v5`
-- Migrations: `golang-migrate`
-- CI: GitHub Actions
-- Containers: Docker + Docker Compose
-- Testes de integração: `testcontainers-go`
-- IDs: `google/uuid`
-- Fluxo funcional vigente: `Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`
+## Contexto mínimo a carregar
 
-## Estrutura oficial do repositório
+- `AGENTS.md`
+- `.agents/rules/20-coding.md`
+- `.agents/rules/50-security.md`
+- `.agents/rules/70-phase-governance.md`
 
-```text
-.
-├── .agents/
-│   ├── roles/
-│   └── skills/
-├── cmd/
-│   ├── api/
-│   └── migrate/
-├── configs/
-│   ├── app/
-│   └── observability/
-├── docs/
-│   ├── adr/
-│   ├── commands.md
-│   └── diagrams/
-├── internal/
-│   ├── shared/
-│   ├── customers/
-│   ├── billing/
-│   ├── invoices/
-│   └── payments/
-├── migrations/
-└── test/
-    ├── integration/
-    ├── functional/
-    └── support/
-```
+## Baseline vigente
 
-## Contrato de configuracao da Phase 1
+- Go
+- `chi`
+- `slog`
+- `.env` com `godotenv`
+- PostgreSQL
+- `pgx/v5`
+- `golang-migrate`
+- Docker + Docker Compose
+- GitHub Actions
+- `testcontainers-go`
+- `Makefile`
 
-### Obrigatórias
+## Regras específicas
 
-- `APP_PORT`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_NAME`
+- preservar startup simples e reproduzível
+- `GET /health` deve continuar estável
+- banco precisa ser validado no bootstrap quando esse for o comportamento atual do sistema
+- não mover regra de negócio para `internal/shared`
+- mudanças de runtime exigem revisão de `README.md`, `CHANGELOG.md` e `docs/commands.md`
 
-### Opcionais com default
+## Checklist rápido
 
-- `APP_NAME=atlas-erp-core`
-- `APP_ENV=local`
-- `LOG_LEVEL=info`
-- `CORRELATION_ID_HEADER=X-Correlation-ID`
-
-### Baseline futura documentada
-
-- `DATABASE_URL`
-- `DATABASE_MAX_OPEN_CONNS`
-- `DATABASE_MAX_IDLE_CONNS`
-- `DATABASE_CONN_MAX_LIFETIME`
-- `REDIS_URL`
-- `HTTP_READ_TIMEOUT`
-- `HTTP_WRITE_TIMEOUT`
-- `HTTP_IDLE_TIMEOUT`
-- `OTEL_SERVICE_NAME`
-- `OTEL_EXPORTER_OTLP_ENDPOINT`
-- `OTEL_EXPORTER_OTLP_HEADERS`
-- `OTEL_TRACES_SAMPLER`
-
-## Comandos oficiais
-
-- `make setup`
-- `make up`
-- `make down`
-- `make run`
-- `make build`
-- `make fmt`
-- `make lint`
-- `make test`
-- `make test-unit`
-- `make test-integration`
-- `make test-functional`
-- `make migrate-up`
-- `make migrate-down`
-
-## Regras para evolucao da foundation
-
-- Não introduzir lógica de negócio em `internal/shared`.
-- `internal/shared` deve conter apenas utilidades transversais estáveis.
-- Alteracoes em bootstrap, ambiente, comandos, stack ou estrutura exigem atualizacao de README, CHANGELOG e `docs/commands.md`.
-- Redis, OpenTelemetry e eventos internos continuam fora do runtime ativo ate decisao explicita de fase futura.
+- build continua íntegro
+- comandos principais continuam válidos
+- env vars continuam coerentes
+- migrations acompanham mudanças de schema
+- documentação operacional foi atualizada

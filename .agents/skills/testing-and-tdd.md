@@ -1,52 +1,45 @@
 # Skill: Testing and TDD
 
-## Objetivo
+## Quando usar
 
-Definir a estrategia de testes da foundation e da Phase 1, preservando cobertura relevante do fluxo de negocio ja entregue.
+Use esta skill em qualquer mudança que altere comportamento, corrija bug ou adicione regra nova.
 
-## Tipos obrigatórios de teste
+## Contexto mínimo a carregar
 
-- testes unitários
-- testes de integração
-- testes funcionais
+- `.agents/rules/30-testing.md`
+- `.agents/rules/60-delivery.md`
 
-## Mapeamento por camada
+## Estratégia
 
-- `domain`: testes unitários puros para entidades, value objects e invariantes
-- `application`: testes unitários e de orquestração de use cases
-- `infrastructure`: testes de integração para persistência, handlers, migrations e integrações
-- fluxos críticos: testes funcionais ou E2E
+- unitário para domínio e regras puras
+- integração para persistência, migrations e adapters
+- funcional para fluxo HTTP e cenários ponta a ponta
 
-## Cobertura minima vigente da Phase 1
+## Cobertura mínima de referência da Phase 1
 
-- `internal/shared/config`: carregamento e validação de config
-- `internal/shared/logging`: logger estruturado
-- `internal/shared/correlation`: middleware de correlation ID
-- `internal/shared/http`: contrato do `GET /health`
-- `internal/customers/domain`: regras centrais de cliente, documento e email
-- `internal/invoices/domain`: valor, vencimento e imutabilidade apos pagamento
-- `internal/payments/domain`: estados do pagamento
-- `internal/*/application`: use cases com fakes e cenarios de duplicidade/erro
-- `test/integration`: PostgreSQL real, migrations e fluxo Phase 1
-- `test/functional`: contrato funcional do healthcheck e fluxo HTTP ponta a ponta
-
-## Regras de qualidade
-
-- Todo bug corrigido deve ganhar teste que falha antes e passa depois.
-- Toda nova regra de negócio deve nascer orientada por teste.
-- Teste frágil deve ser reescrito para validar comportamento observável.
-- Usar `testcontainers-go` para infraestrutura real quando o cenário exigir PostgreSQL ou Redis.
-
-## TDD obrigatório
-
-Adotar o ciclo:
-
-1. Escrever um teste que falha.
-2. Implementar o mínimo para fazê-lo passar.
-3. Refatorar preservando comportamento.
+- `internal/shared/config`
+- `internal/shared/logging`
+- `internal/shared/correlation`
+- `internal/shared/http`
+- `internal/customers/domain`
+- `internal/invoices/domain`
+- `internal/payments/domain`
+- `internal/*/application`
+- `test/integration`
+- `test/functional`
 
 ## Regras práticas
 
-- Não usar testes para justificar acoplamento entre módulos.
-- Não esconder regra de negócio em mocks ou fixtures mágicas.
-- Se Docker não estiver disponível, testes dependentes de `testcontainers` podem ser pulados localmente, mas não devem ser removidos.
+- bug corrigido ganha regressão
+- teste frágil deve ser reescrito
+- mock não substitui regra de negócio
+- cenários com infraestrutura real devem usar `testcontainers-go` quando isso fizer parte do comportamento validado
+
+## Evidência mínima sugerida
+
+Escolher o menor conjunto honesto entre:
+
+- `make test-unit`
+- `make test-integration`
+- `make test-functional`
+- `make test`
