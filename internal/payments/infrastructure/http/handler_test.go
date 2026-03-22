@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,16 +23,18 @@ import (
 )
 
 type paymentRepositoryStub struct {
-	byID      map[string]entities.Payment
-	byInvoice map[string][]string
+	byID             map[string]entities.Payment
+	byInvoice        map[string][]string
+	byBillingAttempt map[string]string
 }
 
 var _ repositories.PaymentRepository = (*paymentRepositoryStub)(nil)
 
 func newPaymentRepositoryStub() *paymentRepositoryStub {
 	return &paymentRepositoryStub{
-		byID:      map[string]entities.Payment{},
-		byInvoice: map[string][]string{},
+		byID:             map[string]entities.Payment{},
+		byInvoice:        map[string][]string{},
+		byBillingAttempt: map[string]string{},
 	}
 }
 
@@ -46,18 +49,39 @@ func (repository *paymentRepositoryStub) HasApprovedByInvoiceID(_ context.Contex
 }
 
 func (repository *paymentRepositoryStub) Save(_ context.Context, payment entities.Payment) error {
-	repository.byID[payment.ID()] = payment
-	repository.byInvoice[payment.InvoiceID()] = append(repository.byInvoice[payment.InvoiceID()], payment.ID())
+	if _, exists := repository.byBillingAttempt[paymentAttemptKey(payment.BillingID(), payment.AttemptNumber())]; exists {
+		return entities.ErrPaymentAlreadyExists
+	}
+
+	repository.store(payment)
+	return nil
+}
+
+func (repository *paymentRepositoryStub) Update(_ context.Context, payment entities.Payment) error {
+	if _, exists := repository.byID[payment.ID()]; !exists {
+		return entities.ErrPaymentNotFound
+	}
+
+	repository.store(payment)
 	return nil
 }
 
 func (repository *paymentRepositoryStub) GetByID(_ context.Context, paymentID string) (entities.Payment, error) {
 	payment, ok := repository.byID[paymentID]
 	if !ok {
-		return entities.Payment{}, entities.ErrInvalidPaymentID
+		return entities.Payment{}, entities.ErrPaymentNotFound
 	}
 
 	return payment, nil
+}
+
+func (repository *paymentRepositoryStub) GetByBillingIDAndAttempt(_ context.Context, billingID string, attemptNumber int) (entities.Payment, error) {
+	paymentID, ok := repository.byBillingAttempt[paymentAttemptKey(billingID, attemptNumber)]
+	if !ok {
+		return entities.Payment{}, entities.ErrPaymentNotFound
+	}
+
+	return repository.byID[paymentID], nil
 }
 
 func (repository *paymentRepositoryStub) ListByInvoiceID(_ context.Context, invoiceID string) ([]entities.Payment, error) {
@@ -67,6 +91,23 @@ func (repository *paymentRepositoryStub) ListByInvoiceID(_ context.Context, invo
 	}
 
 	return payments, nil
+}
+
+func (repository *paymentRepositoryStub) store(payment entities.Payment) {
+	repository.byID[payment.ID()] = payment
+	repository.byBillingAttempt[paymentAttemptKey(payment.BillingID(), payment.AttemptNumber())] = payment.ID()
+
+	for _, existingID := range repository.byInvoice[payment.InvoiceID()] {
+		if existingID == payment.ID() {
+			return
+		}
+	}
+
+	repository.byInvoice[payment.InvoiceID()] = append(repository.byInvoice[payment.InvoiceID()], payment.ID())
+}
+
+func paymentAttemptKey(billingID string, attemptNumber int) string {
+	return fmt.Sprintf("%s#%d", billingID, attemptNumber)
 }
 
 type billingPortStub struct {
@@ -84,10 +125,11 @@ func (port *billingPortStub) GetProcessableBillingByInvoiceID(context.Context, s
 
 type paymentGatewayStub struct {
 	result paymentports.GatewayResult
+	err    error
 }
 
 func (gateway paymentGatewayStub) Process(context.Context, paymentports.GatewayRequest) (paymentports.GatewayResult, error) {
-	return gateway.result, nil
+	return gateway.result, gateway.err
 }
 
 type txManagerStub struct{}
@@ -101,11 +143,13 @@ func TestCreatePaymentReturnsCreatedPayload(t *testing.T) {
 
 	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &billingPortStub{
 		snapshot: billingports.BillingSnapshot{
-			ID:          "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
-			InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
-			AmountCents: 1599,
-			Status:      "Requested",
-			DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+			ID:            "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+			InvoiceID:     "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+			CustomerID:    "7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
+			AmountCents:   1599,
+			Status:        "Requested",
+			DueDate:       time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+			AttemptNumber: 1,
 		},
 	}, paymentGatewayStub{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "gw-001"}})
 	defer server.Close()
@@ -118,8 +162,9 @@ func TestCreatePaymentReturnsCreatedPayload(t *testing.T) {
 	}
 
 	var payload struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
+		ID            string `json:"id"`
+		Status        string `json:"status"`
+		AttemptNumber int    `json:"attempt_number"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode payment payload: %v", err)
@@ -131,6 +176,50 @@ func TestCreatePaymentReturnsCreatedPayload(t *testing.T) {
 
 	if payload.Status != "Approved" {
 		t.Fatalf("expected approved payment, got %q", payload.Status)
+	}
+
+	if payload.AttemptNumber != 1 {
+		t.Fatalf("expected attempt number 1, got %d", payload.AttemptNumber)
+	}
+}
+
+func TestCreatePaymentReturnsFailedPayloadOnGatewayTechnicalFailure(t *testing.T) {
+	t.Parallel()
+
+	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &billingPortStub{
+		snapshot: billingports.BillingSnapshot{
+			ID:            "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+			InvoiceID:     "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+			CustomerID:    "7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
+			AmountCents:   1599,
+			Status:        "Requested",
+			DueDate:       time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+			AttemptNumber: 1,
+		},
+	}, paymentGatewayStub{err: context.DeadlineExceeded})
+	defer server.Close()
+
+	response := performPaymentRequest(t, server, http.MethodPost, "/payments", `{"invoice_id":"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe"}`, "req-payment-technical")
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", response.StatusCode)
+	}
+
+	var payload struct {
+		Status          string `json:"status"`
+		FailureCategory string `json:"failure_category"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode failed payment payload: %v", err)
+	}
+
+	if payload.Status != "Failed" {
+		t.Fatalf("expected failed payment, got %q", payload.Status)
+	}
+
+	if payload.FailureCategory != "gateway_timeout" {
+		t.Fatalf("expected gateway_timeout failure category, got %q", payload.FailureCategory)
 	}
 }
 
@@ -154,8 +243,11 @@ func TestCreatePaymentMapsConflictWhenApprovedPaymentAlreadyExists(t *testing.T)
 		"payment-001",
 		"a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
 		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		1,
+		"billing:a4a40fd7-50ac-43c6-b6d1-a98ee0952603:attempt:1",
 		"Approved",
 		"gw-001",
+		"",
 		time.Now().Add(-time.Minute),
 		time.Now(),
 	)
@@ -168,11 +260,13 @@ func TestCreatePaymentMapsConflictWhenApprovedPaymentAlreadyExists(t *testing.T)
 
 	server := newPaymentTestServer(t, repository, &billingPortStub{
 		snapshot: billingports.BillingSnapshot{
-			ID:          "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
-			InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
-			AmountCents: 1599,
-			Status:      "Requested",
-			DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+			ID:            "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+			InvoiceID:     "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+			CustomerID:    "7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
+			AmountCents:   1599,
+			Status:        "Requested",
+			DueDate:       time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+			AttemptNumber: 2,
 		},
 	}, paymentGatewayStub{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "gw-001"}})
 	defer server.Close()
@@ -208,6 +302,7 @@ func newPaymentTestServer(t *testing.T, repository *paymentRepositoryStub, billi
 		gateway,
 		txManagerStub{},
 		sharedevent.NewSyncBus(),
+		time.Second,
 	)
 
 	handler := NewHandler(

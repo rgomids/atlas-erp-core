@@ -6,11 +6,13 @@ import (
 )
 
 type BillingSnapshot struct {
-	ID          string
-	InvoiceID   string
-	AmountCents int64
-	DueDate     time.Time
-	Status      string
+	ID            string
+	InvoiceID     string
+	CustomerID    string
+	AmountCents   int64
+	DueDate       time.Time
+	Status        string
+	AttemptNumber int
 }
 
 type PaymentCompatibilityPort interface {

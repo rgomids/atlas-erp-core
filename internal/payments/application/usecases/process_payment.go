@@ -41,9 +41,11 @@ func (usecase ProcessPayment) Execute(ctx context.Context, input ProcessPaymentI
 	}
 
 	return usecase.processBillingRequest.Execute(ctx, ProcessBillingRequestInput{
-		BillingID:   billing.ID,
-		InvoiceID:   billing.InvoiceID,
-		AmountCents: billing.AmountCents,
-		DueDate:     billing.DueDate,
+		BillingID:     billing.ID,
+		InvoiceID:     billing.InvoiceID,
+		CustomerID:    billing.CustomerID,
+		AmountCents:   billing.AmountCents,
+		DueDate:       billing.DueDate,
+		AttemptNumber: billing.AttemptNumber,
 	})
 }

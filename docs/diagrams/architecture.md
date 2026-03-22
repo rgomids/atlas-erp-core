@@ -35,21 +35,22 @@ C4Container
     Rel(app_core, payment_gateway, "Processa pagamentos", "Port/Adapter")
 ```
 
-## C3 - Phase 3 Components
+## C3 - Phase 4 Components
 
 ```mermaid
 C4Component
-    title Component Diagram for Atlas ERP Core Phase 3
+    title Component Diagram for Atlas ERP Core Phase 4
 
     Container_Boundary(core, "Application Core") {
         Component(router, "HTTP Router", "internal/shared/http", "Registra middleware, validacao de borda, correlation/request_id, error contract e rotas")
-        Component(event_bus, "Sync Event Bus", "internal/shared/event", "Publica eventos in-process na ordem de inscricao e loga emitter/consumer")
+        Component(event_bus, "Sync Event Bus", "internal/shared/event", "Publica eventos in-process, registra payload no outbox e loga emitter/consumer com contexto de dominio")
         Component(customers_module, "Customers Module", "application/domain/infrastructure", "Cria, atualiza e inativa clientes; publica CustomerCreated")
         Component(invoices_module, "Invoices Module", "application/domain/infrastructure", "Cria e lista invoices; publica InvoiceCreated e consome PaymentApproved")
-        Component(billing_module, "Billing Module", "application/domain/infrastructure", "Cria cobranca por invoice e publica BillingRequested")
-        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Consome BillingRequested, processa pagamento e publica PaymentApproved ou PaymentFailed")
+        Component(billing_module, "Billing Module", "application/domain/infrastructure", "Cria cobranca por invoice, controla attempt_number e prepara retry seguro")
+        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Consome BillingRequested, reserva tentativa idempotente, aplica timeout de gateway e publica PaymentApproved ou PaymentFailed")
         Component(shared_pg, "Postgres Tx Context", "internal/shared/postgres", "Coordena transacoes locais para handlers executados dentro do publish")
-        Component(shared_obs, "Structured Logging", "internal/shared/logging + correlation", "Produz logs JSON com module, event, emitter_module, consumer_module e request_id")
+        Component(shared_outbox, "Outbox Recorder", "internal/shared/outbox", "Registra eventos emitidos em outbox_events no mesmo contexto transacional quando existir")
+        Component(shared_obs, "Structured Logging", "internal/shared/logging + correlation", "Produz logs JSON com module, event, emitter_module, consumer_module, ids de dominio e request_id")
     }
 
     ContainerDb(main_db, "PostgreSQL", "Relational Database", "Persistencia transacional")
@@ -62,6 +63,7 @@ C4Component
     Rel(event_bus, billing_module, "InvoiceCreated / PaymentApproved / PaymentFailed")
     Rel(event_bus, payments_module, "BillingRequested")
     Rel(payments_module, event_bus, "Publish PaymentApproved / PaymentFailed")
+    Rel(event_bus, shared_outbox, "Record payload")
     Rel(event_bus, invoices_module, "PaymentApproved")
     Rel(payments_module, shared_pg, "WithinTransaction")
     Rel(router, shared_obs, "Anexa module/request_id")
@@ -72,7 +74,7 @@ C4Component
     Rel(payments_module, main_db, "payments")
 ```
 
-## Sequence - Automatic Event-Driven Flow
+## Sequence - Automatic Event-Driven Flow With Resilience
 
 ```mermaid
 sequenceDiagram
@@ -94,9 +96,10 @@ sequenceDiagram
     Billing->>DB: insert billing (Requested)
     Billing->>Bus: publish BillingRequested
     Bus->>Payments: handle BillingRequested
-    Payments->>Gateway: Process
+    Payments->>DB: insert pending payment attempt (billing_id + attempt_number)
+    Payments->>Gateway: Process with timeout
     Gateway-->>Payments: Approved or Failed
-    Payments->>DB: insert payment attempt
+    Payments->>DB: update payment attempt + persist outbox record
     alt Approved
         Payments->>Bus: publish PaymentApproved
         Bus->>Billing: handle PaymentApproved
@@ -128,17 +131,27 @@ sequenceDiagram
     Admin->>API: POST /payments + invoice_id
     API->>Payments: ProcessPayment (compat)
     Payments->>Billing: GetProcessableBillingByInvoiceID
-    Billing->>DB: reactivate billing when status is Failed
+    Billing->>DB: reactivate billing when status is Failed and advance attempt_number
     Billing-->>Payments: billing snapshot
-    Payments->>Gateway: Process
-    Gateway-->>Payments: Approved
-    Payments->>DB: insert second payment attempt
-    Payments->>Bus: publish PaymentApproved
-    Bus->>Billing: handle PaymentApproved
-    Billing->>DB: update billing (Approved)
-    Bus->>Invoices: handle PaymentApproved
-    Invoices->>DB: update invoice (Paid)
-    API-->>Admin: 201 + payment payload
+    Payments->>DB: reserve idempotent payment attempt
+    Payments->>Gateway: Process with timeout
+    alt Approved
+        Gateway-->>Payments: Approved
+        Payments->>DB: finalize approved attempt
+        Payments->>Bus: publish PaymentApproved
+        Bus->>Billing: handle PaymentApproved
+        Billing->>DB: update billing (Approved)
+        Bus->>Invoices: handle PaymentApproved
+        Invoices->>DB: update invoice (Paid)
+        API-->>Admin: 201 + payment payload
+    else Technical failure
+        Gateway-->>Payments: timeout / error
+        Payments->>DB: finalize failed attempt
+        Payments->>Bus: publish PaymentFailed
+        Bus->>Billing: handle PaymentFailed
+        Billing->>DB: update billing (Failed)
+        API-->>Admin: 201 + failed payment payload
+    end
 ```
 
 ## Sequence - Validation Failure

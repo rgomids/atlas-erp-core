@@ -14,24 +14,28 @@ const (
 )
 
 type Billing struct {
-	id          string
-	invoiceID   string
-	amountCents int64
-	dueDate     time.Time
-	status      Status
-	createdAt   time.Time
-	updatedAt   time.Time
+	id            string
+	invoiceID     string
+	customerID    string
+	amountCents   int64
+	dueDate       time.Time
+	status        Status
+	attemptNumber int
+	createdAt     time.Time
+	updatedAt     time.Time
 }
 
-func NewBilling(id, invoiceID string, amountCents int64, dueDate time.Time, now time.Time) (Billing, error) {
+func NewBilling(id, invoiceID, customerID string, amountCents int64, dueDate time.Time, now time.Time) (Billing, error) {
 	billing := Billing{
-		id:          strings.TrimSpace(id),
-		invoiceID:   strings.TrimSpace(invoiceID),
-		amountCents: amountCents,
-		dueDate:     normalizeDate(dueDate),
-		status:      StatusRequested,
-		createdAt:   now.UTC(),
-		updatedAt:   now.UTC(),
+		id:            strings.TrimSpace(id),
+		invoiceID:     strings.TrimSpace(invoiceID),
+		customerID:    strings.TrimSpace(customerID),
+		amountCents:   amountCents,
+		dueDate:       normalizeDate(dueDate),
+		status:        StatusRequested,
+		attemptNumber: 1,
+		createdAt:     now.UTC(),
+		updatedAt:     now.UTC(),
 	}
 
 	if err := billing.validate(); err != nil {
@@ -44,20 +48,24 @@ func NewBilling(id, invoiceID string, amountCents int64, dueDate time.Time, now 
 func RehydrateBilling(
 	id string,
 	invoiceID string,
+	customerID string,
 	amountCents int64,
 	dueDate time.Time,
 	status string,
+	attemptNumber int,
 	createdAt time.Time,
 	updatedAt time.Time,
 ) (Billing, error) {
 	billing := Billing{
-		id:          strings.TrimSpace(id),
-		invoiceID:   strings.TrimSpace(invoiceID),
-		amountCents: amountCents,
-		dueDate:     normalizeDate(dueDate),
-		status:      Status(strings.TrimSpace(status)),
-		createdAt:   createdAt.UTC(),
-		updatedAt:   updatedAt.UTC(),
+		id:            strings.TrimSpace(id),
+		invoiceID:     strings.TrimSpace(invoiceID),
+		customerID:    strings.TrimSpace(customerID),
+		amountCents:   amountCents,
+		dueDate:       normalizeDate(dueDate),
+		status:        Status(strings.TrimSpace(status)),
+		attemptNumber: attemptNumber,
+		createdAt:     createdAt.UTC(),
+		updatedAt:     updatedAt.UTC(),
 	}
 
 	if err := billing.validate(); err != nil {
@@ -94,6 +102,7 @@ func (billing *Billing) MarkRequested(now time.Time) error {
 	}
 
 	billing.status = StatusRequested
+	billing.attemptNumber++
 	billing.updatedAt = now.UTC()
 
 	return nil
@@ -106,11 +115,17 @@ func (billing Billing) validate() error {
 	if billing.invoiceID == "" {
 		return ErrInvalidInvoiceReference
 	}
+	if billing.customerID == "" {
+		return ErrInvalidCustomerReference
+	}
 	if billing.amountCents <= 0 {
 		return ErrInvalidInvoiceReference
 	}
 	if billing.dueDate.IsZero() {
 		return ErrInvalidInvoiceReference
+	}
+	if billing.attemptNumber <= 0 {
+		return ErrInvalidAttemptNumber
 	}
 	if billing.status != StatusRequested && billing.status != StatusFailed && billing.status != StatusApproved {
 		return ErrInvalidBillingID
@@ -127,6 +142,10 @@ func (billing Billing) InvoiceID() string {
 	return billing.invoiceID
 }
 
+func (billing Billing) CustomerID() string {
+	return billing.customerID
+}
+
 func (billing Billing) AmountCents() int64 {
 	return billing.amountCents
 }
@@ -137,6 +156,10 @@ func (billing Billing) DueDate() time.Time {
 
 func (billing Billing) Status() Status {
 	return billing.status
+}
+
+func (billing Billing) AttemptNumber() int {
+	return billing.attemptNumber
 }
 
 func (billing Billing) CreatedAt() time.Time {

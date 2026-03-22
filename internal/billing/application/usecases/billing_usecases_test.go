@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
 	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/repositories"
@@ -54,6 +55,10 @@ func (repository *billingRepositoryFake) GetByInvoiceID(_ context.Context, invoi
 	return repository.byID[billingID], nil
 }
 
+func (repository *billingRepositoryFake) GetByInvoiceIDForUpdate(ctx context.Context, invoiceID string) (entities.Billing, error) {
+	return repository.GetByInvoiceID(ctx, invoiceID)
+}
+
 func (repository *billingRepositoryFake) Update(_ context.Context, billing entities.Billing) error {
 	if _, exists := repository.byID[billing.ID()]; !exists {
 		return entities.ErrBillingNotFound
@@ -62,6 +67,12 @@ func (repository *billingRepositoryFake) Update(_ context.Context, billing entit
 	repository.byID[billing.ID()] = billing
 	repository.byInvoice[billing.InvoiceID()] = billing.ID()
 	return nil
+}
+
+type txManagerFake struct{}
+
+func (txManagerFake) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
@@ -81,6 +92,7 @@ func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
 
 	billing, err := createBilling.Execute(context.Background(), CreateBillingFromInvoiceInput{
 		InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		CustomerID:  "7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
 		AmountCents: 1599,
 		DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
 	})
@@ -94,6 +106,10 @@ func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
 
 	if len(requestedEvents) != 1 {
 		t.Fatalf("expected 1 billing requested event, got %d", len(requestedEvents))
+	}
+
+	if requestedEvents[0].AttemptNumber != 1 {
+		t.Fatalf("expected initial attempt number 1, got %d", requestedEvents[0].AttemptNumber)
 	}
 }
 
@@ -112,6 +128,7 @@ func TestCreateBillingFromInvoiceIsIdempotent(t *testing.T) {
 	createBilling := NewCreateBillingFromInvoice(repository, bus)
 	input := CreateBillingFromInvoiceInput{
 		InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		CustomerID:  "7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
 		AmountCents: 1599,
 		DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
 	}
@@ -141,6 +158,7 @@ func TestGetProcessableBillingByInvoiceIDReactivatesFailedBilling(t *testing.T) 
 	billing, err := entities.NewBilling(
 		"billing-id",
 		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		"7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
 		1599,
 		time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
 		now,
@@ -153,7 +171,7 @@ func TestGetProcessableBillingByInvoiceIDReactivatesFailedBilling(t *testing.T) 
 		t.Fatalf("save billing: %v", err)
 	}
 
-	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository)
+	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository, txManagerFake{})
 	getProcessableBilling.now = func() time.Time { return now.Add(2 * time.Minute) }
 
 	processableBilling, err := getProcessableBilling.Execute(context.Background(), billing.InvoiceID())
@@ -163,6 +181,10 @@ func TestGetProcessableBillingByInvoiceIDReactivatesFailedBilling(t *testing.T) 
 
 	if processableBilling.Status != "Requested" {
 		t.Fatalf("expected requested billing after reactivation, got %q", processableBilling.Status)
+	}
+
+	if processableBilling.AttemptNumber != 2 {
+		t.Fatalf("expected retry attempt number 2, got %d", processableBilling.AttemptNumber)
 	}
 }
 
@@ -174,6 +196,7 @@ func TestGetProcessableBillingByInvoiceIDRejectsApprovedBilling(t *testing.T) {
 	billing, err := entities.NewBilling(
 		"billing-id",
 		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		"7adf3d42-7b1d-4d2b-a7d6-5d977b7576aa",
 		1599,
 		time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
 		now,
@@ -186,10 +209,12 @@ func TestGetProcessableBillingByInvoiceIDRejectsApprovedBilling(t *testing.T) {
 		t.Fatalf("save billing: %v", err)
 	}
 
-	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository)
+	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository, txManagerFake{})
 
 	_, err = getProcessableBilling.Execute(context.Background(), billing.InvoiceID())
 	if !errors.Is(err, entities.ErrBillingAlreadyApproved) {
 		t.Fatalf("expected billing already approved error, got %v", err)
 	}
 }
+
+var _ billingports.TransactionManager = txManagerFake{}

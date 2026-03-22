@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,6 +13,8 @@ import (
 
 type MockGateway struct {
 	status string
+	delay  time.Duration
+	err    error
 }
 
 func NewMockGateway() MockGateway {
@@ -22,9 +25,32 @@ func NewMockGatewayWithStatus(status string) MockGateway {
 	return MockGateway{status: status}
 }
 
-func (gateway MockGateway) Process(_ context.Context, _ ports.GatewayRequest) (ports.GatewayResult, error) {
+func NewMockGatewayWithDelay(status string, delay time.Duration) MockGateway {
+	return MockGateway{status: status, delay: delay}
+}
+
+func NewMockGatewayWithError(err error) MockGateway {
+	return MockGateway{status: string(entities.StatusFailed), err: err}
+}
+
+func (gateway MockGateway) Process(ctx context.Context, _ ports.GatewayRequest) (ports.GatewayResult, error) {
 	if gateway.status == "" {
 		return ports.GatewayResult{}, fmt.Errorf("gateway status must be configured")
+	}
+
+	if gateway.delay > 0 {
+		timer := time.NewTimer(gateway.delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return ports.GatewayResult{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	if gateway.err != nil {
+		return ports.GatewayResult{}, gateway.err
 	}
 
 	return ports.GatewayResult{

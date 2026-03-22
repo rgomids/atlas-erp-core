@@ -18,6 +18,7 @@ import (
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
+	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	"github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 )
 
@@ -53,11 +54,13 @@ func run() error {
 	}
 	defer db.Close()
 
-	eventBus := sharedevent.NewSyncBus()
+	eventBus := sharedevent.NewSyncBus(outbox.NewPostgresRecorder(db))
 	customerModule := customers.NewModule(db, eventBus)
 	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker(), eventBus)
 	billingModule := billing.NewModule(db, eventBus)
-	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, nil)
+	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, nil, payments.ModuleConfig{
+		GatewayTimeout: cfg.Payments.GatewayTimeout,
+	})
 
 	server := &http.Server{
 		Addr: cfg.App.Address(),

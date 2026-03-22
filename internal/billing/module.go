@@ -13,6 +13,7 @@ import (
 	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
+	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 )
 
 type Module struct {
@@ -21,9 +22,10 @@ type Module struct {
 
 func NewModule(pool *pgxpool.Pool, bus sharedevent.EventBus) Module {
 	repository := persistence.NewPostgresRepository(pool)
+	transactionManager := sharedpostgres.NewTxManager(pool)
 
 	createBilling := usecases.NewCreateBillingFromInvoice(repository, bus)
-	getProcessableBilling := usecases.NewGetProcessableBillingByInvoiceID(repository)
+	getProcessableBilling := usecases.NewGetProcessableBillingByInvoiceID(repository, transactionManager)
 	markBillingApproved := usecases.NewMarkBillingApproved(repository)
 	markBillingFailed := usecases.NewMarkBillingFailed(repository)
 

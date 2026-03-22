@@ -27,8 +27,8 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 func (repository *PostgresRepository) Save(ctx context.Context, billing entities.Billing) error {
 	const query = `
-		INSERT INTO billings (id, invoice_id, amount_cents, due_date, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO billings (id, invoice_id, customer_id, amount_cents, due_date, status, attempt_number, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
 	_, err := sharedpostgres.ExecutorFromContext(ctx, repository.pool).Exec(
@@ -36,9 +36,11 @@ func (repository *PostgresRepository) Save(ctx context.Context, billing entities
 		query,
 		billing.ID(),
 		billing.InvoiceID(),
+		billing.CustomerID(),
 		billing.AmountCents(),
 		billing.DueDate(),
 		billing.Status(),
+		billing.AttemptNumber(),
 		billing.CreatedAt(),
 		billing.UpdatedAt(),
 	)
@@ -54,7 +56,7 @@ func (repository *PostgresRepository) Save(ctx context.Context, billing entities
 
 func (repository *PostgresRepository) GetByID(ctx context.Context, billingID string) (entities.Billing, error) {
 	const query = `
-		SELECT id, invoice_id, amount_cents, due_date, status, created_at, updated_at
+		SELECT id, invoice_id, customer_id, amount_cents, due_date, status, attempt_number, created_at, updated_at
 		FROM billings
 		WHERE id = $1
 	`
@@ -64,9 +66,20 @@ func (repository *PostgresRepository) GetByID(ctx context.Context, billingID str
 
 func (repository *PostgresRepository) GetByInvoiceID(ctx context.Context, invoiceID string) (entities.Billing, error) {
 	const query = `
-		SELECT id, invoice_id, amount_cents, due_date, status, created_at, updated_at
+		SELECT id, invoice_id, customer_id, amount_cents, due_date, status, attempt_number, created_at, updated_at
 		FROM billings
 		WHERE invoice_id = $1
+	`
+
+	return repository.getOne(ctx, query, invoiceID)
+}
+
+func (repository *PostgresRepository) GetByInvoiceIDForUpdate(ctx context.Context, invoiceID string) (entities.Billing, error) {
+	const query = `
+		SELECT id, invoice_id, customer_id, amount_cents, due_date, status, attempt_number, created_at, updated_at
+		FROM billings
+		WHERE invoice_id = $1
+		FOR UPDATE
 	`
 
 	return repository.getOne(ctx, query, invoiceID)
@@ -76,7 +89,8 @@ func (repository *PostgresRepository) Update(ctx context.Context, billing entiti
 	const query = `
 		UPDATE billings
 		SET status = $2,
-			updated_at = $3
+			attempt_number = $3,
+			updated_at = $4
 		WHERE id = $1
 	`
 
@@ -85,6 +99,7 @@ func (repository *PostgresRepository) Update(ctx context.Context, billing entiti
 		query,
 		billing.ID(),
 		billing.Status(),
+		billing.AttemptNumber(),
 		billing.UpdatedAt(),
 	)
 	if err != nil {
@@ -100,18 +115,20 @@ func (repository *PostgresRepository) Update(ctx context.Context, billing entiti
 
 func (repository *PostgresRepository) getOne(ctx context.Context, query string, argument string) (entities.Billing, error) {
 	var (
-		id          string
-		invoiceID   string
-		amountCents int64
-		dueDate     time.Time
-		status      string
-		createdAt   time.Time
-		updatedAt   time.Time
+		id            string
+		invoiceID     string
+		customerID    string
+		amountCents   int64
+		dueDate       time.Time
+		status        string
+		attemptNumber int
+		createdAt     time.Time
+		updatedAt     time.Time
 	)
 
 	err := sharedpostgres.ExecutorFromContext(ctx, repository.pool).
 		QueryRow(ctx, query, argument).
-		Scan(&id, &invoiceID, &amountCents, &dueDate, &status, &createdAt, &updatedAt)
+		Scan(&id, &invoiceID, &customerID, &amountCents, &dueDate, &status, &attemptNumber, &createdAt, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entities.Billing{}, entities.ErrBillingNotFound
 	}
@@ -119,7 +136,7 @@ func (repository *PostgresRepository) getOne(ctx context.Context, query string, 
 		return entities.Billing{}, fmt.Errorf("query billing: %w", err)
 	}
 
-	billing, err := entities.RehydrateBilling(id, invoiceID, amountCents, dueDate, status, createdAt, updatedAt)
+	billing, err := entities.RehydrateBilling(id, invoiceID, customerID, amountCents, dueDate, status, attemptNumber, createdAt, updatedAt)
 	if err != nil {
 		return entities.Billing{}, fmt.Errorf("rehydrate billing: %w", err)
 	}

@@ -25,6 +25,7 @@ func (handler InvoiceCreated) Handle(ctx context.Context, event sharedevent.Even
 
 	_, err := handler.createBilling.Execute(ctx, usecases.CreateBillingFromInvoiceInput{
 		InvoiceID:   domainEvent.InvoiceID,
+		CustomerID:  domainEvent.CustomerID,
 		AmountCents: domainEvent.AmountCents,
 		DueDate:     domainEvent.DueDate,
 	})
