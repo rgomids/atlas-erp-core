@@ -114,10 +114,94 @@ func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
 	}
 }
 
+func TestPhase2HTTPInvalidInputReturnsCanonicalErrorAndTraceability(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	logBuffer := &bytes.Buffer{}
+	logger, err := logging.NewWithWriter("info", logBuffer)
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+
+	customerModule := customers.NewModule(pool)
+	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker())
+	paymentModule := payments.NewModule(pool, invoiceModule.PaymentPort())
+
+	server := httptest.NewServer(httpapi.NewRouter(
+		logger,
+		"X-Correlation-ID",
+		customerModule.Routes,
+		invoiceModule.Routes,
+		paymentModule.Routes,
+	))
+	defer server.Close()
+
+	response := postJSONWithRequestID(t, server.URL+"/customers", `{"name":"Atlas Co","email":"team@atlas.io"}`, "req-functional-002")
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected customer validation status 400, got %d", response.StatusCode)
+	}
+
+	if response.Header.Get("X-Correlation-ID") != "req-functional-002" {
+		t.Fatalf("expected correlation id header to be preserved, got %q", response.Header.Get("X-Correlation-ID"))
+	}
+
+	var errorPayload httpapi.ErrorResponse
+	if err := json.NewDecoder(response.Body).Decode(&errorPayload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+
+	if errorPayload.Error != "invalid_input" {
+		t.Fatalf("expected invalid_input error, got %q", errorPayload.Error)
+	}
+
+	if errorPayload.Message != "document is required" {
+		t.Fatalf("expected document required message, got %q", errorPayload.Message)
+	}
+
+	if errorPayload.RequestID != "req-functional-002" {
+		t.Fatalf("expected request_id to match correlation id, got %q", errorPayload.RequestID)
+	}
+
+	logOutput := logBuffer.String()
+	for _, fragment := range []string{`"module":"customers"`, `"request_id":"req-functional-002"`} {
+		if !strings.Contains(logOutput, fragment) {
+			t.Fatalf("expected log output to contain %s, got %s", fragment, logOutput)
+		}
+	}
+}
+
 func postJSON(t *testing.T, url string, payload string) *http.Response {
 	t.Helper()
 
-	response, err := http.Post(url, "application/json", strings.NewReader(payload))
+	return postJSONWithRequestID(t, url, payload, "")
+}
+
+func postJSONWithRequestID(t *testing.T, url string, payload string, requestID string) *http.Response {
+	t.Helper()
+
+	request, err := http.NewRequest(http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("create post request %s: %v", url, err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	if requestID != "" {
+		request.Header.Set("X-Correlation-ID", requestID)
+	}
+
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("post %s: %v", url, err)
 	}

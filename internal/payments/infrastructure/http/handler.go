@@ -31,7 +31,12 @@ type processPaymentRequest struct {
 func (handler Handler) create(writer http.ResponseWriter, request *http.Request) {
 	var payload processPaymentRequest
 	if err := httpapi.DecodeJSON(request, &payload); err != nil {
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_request", "invalid JSON payload")
+		httpapi.WriteInputError(writer, request, "invalid JSON payload")
+		return
+	}
+
+	if err := httpapi.RequireUUID("invoice_id", payload.InvoiceID); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
 		return
 	}
 
@@ -49,7 +54,7 @@ func (handler Handler) create(writer http.ResponseWriter, request *http.Request)
 func (handler Handler) writeError(writer http.ResponseWriter, request *http.Request, err error) {
 	switch {
 	case errors.Is(err, entities.ErrInvalidInvoiceReference):
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_payment", err.Error())
+		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, entities.ErrPaymentAlreadyExists):
 		httpapi.WriteError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
 	case errors.Is(err, invoiceentities.ErrInvoiceNotFound):
@@ -58,6 +63,6 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		errors.Is(err, invoiceentities.ErrInvoiceNotPayable):
 		httpapi.WriteError(writer, request, http.StatusConflict, "invoice_not_payable", err.Error())
 	default:
-		httpapi.WriteError(writer, request, http.StatusInternalServerError, "internal_error", "internal server error")
+		httpapi.WriteInternalError(writer, request, err)
 	}
 }

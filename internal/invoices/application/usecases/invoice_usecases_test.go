@@ -83,6 +83,59 @@ func TestCreateInvoiceRequiresExistingCustomer(t *testing.T) {
 	}
 }
 
+func TestCreateInvoiceRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		input       CreateInvoiceInput
+		expectedErr error
+	}{
+		{
+			name: "invalid customer id",
+			input: CreateInvoiceInput{
+				CustomerID:  "invalid",
+				AmountCents: 1500,
+				DueDate:     "2026-03-25",
+			},
+			expectedErr: entities.ErrInvalidCustomerReference,
+		},
+		{
+			name: "invalid amount",
+			input: CreateInvoiceInput{
+				CustomerID:  "2af9b675-4c54-4b1e-9e1f-e56028421b6d",
+				AmountCents: 0,
+				DueDate:     "2026-03-25",
+			},
+			expectedErr: entities.ErrInvoiceAmountMustBePositive,
+		},
+		{
+			name: "invalid due date format",
+			input: CreateInvoiceInput{
+				CustomerID:  "2af9b675-4c54-4b1e-9e1f-e56028421b6d",
+				AmountCents: 1500,
+				DueDate:     "25/03/2026",
+			},
+			expectedErr: entities.ErrInvoiceDueDateRequired,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			createInvoice := NewCreateInvoice(newInvoiceRepositoryFake(), customerCheckerFake{})
+
+			_, err := createInvoice.Execute(context.Background(), testCase.input)
+			if !errors.Is(err, testCase.expectedErr) {
+				t.Fatalf("expected error %v, got %v", testCase.expectedErr, err)
+			}
+		})
+	}
+}
+
 func TestCreateInvoicePropagatesCustomerErrorsAndListsInvoices(t *testing.T) {
 	t.Parallel()
 
@@ -125,5 +178,16 @@ func TestCreateInvoicePropagatesCustomerErrorsAndListsInvoices(t *testing.T) {
 
 	if len(invoices) != 2 {
 		t.Fatalf("expected 2 invoices, got %d", len(invoices))
+	}
+}
+
+func TestListCustomerInvoicesRejectsInvalidCustomerID(t *testing.T) {
+	t.Parallel()
+
+	listInvoices := NewListCustomerInvoices(newInvoiceRepositoryFake())
+
+	_, err := listInvoices.Execute(context.Background(), ListCustomerInvoicesInput{CustomerID: "invalid"})
+	if !errors.Is(err, entities.ErrInvalidCustomerReference) {
+		t.Fatalf("expected invalid customer reference error, got %v", err)
 	}
 }

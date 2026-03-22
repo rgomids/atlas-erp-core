@@ -15,15 +15,18 @@ Use esta skill em qualquer mudança que altere comportamento, corrija bug ou adi
 - integração para persistência, migrations e adapters
 - funcional para fluxo HTTP e cenários ponta a ponta
 
-## Cobertura mínima de referência da Phase 1
+## Cobertura mínima de referência da Phase 2
 
 - `internal/shared/config`
 - `internal/shared/logging`
 - `internal/shared/correlation`
 - `internal/shared/http`
 - `internal/customers/domain`
+- `internal/customers/infrastructure/http`
 - `internal/invoices/domain`
+- `internal/invoices/infrastructure/http`
 - `internal/payments/domain`
+- `internal/payments/infrastructure/http`
 - `internal/*/application`
 - `test/integration`
 - `test/functional`

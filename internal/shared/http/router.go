@@ -15,7 +15,8 @@ type RouteRegistrar func(chi.Router)
 func NewRouter(logger *slog.Logger, correlationHeader string, registrars ...RouteRegistrar) http.Handler {
 	router := chi.NewRouter()
 	router.Use(correlation.Middleware(correlationHeader))
-	router.Use(requestLogger(logger))
+	router.Use(bindLogger(logger))
+	router.Use(requestLogger())
 	router.Get("/health", healthHandler)
 	for _, registrar := range registrars {
 		registrar(router)
@@ -28,7 +29,7 @@ func healthHandler(writer http.ResponseWriter, _ *http.Request) {
 	WriteJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
+func requestLogger() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			recorder := newStatusRecorder(writer)
@@ -36,13 +37,12 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(recorder, request)
 
-			logger.Info(
+			LoggerFromContext(request.Context()).Info(
 				"http request completed",
 				slog.String("method", request.Method),
 				slog.String("path", request.URL.Path),
 				slog.Int("status_code", recorder.statusCode),
 				slog.Duration("duration", time.Since(startedAt)),
-				slog.String("correlation_id", correlation.ID(request.Context())),
 			)
 		})
 	}

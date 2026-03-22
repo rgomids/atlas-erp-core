@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Preservar a coerência do modular monolith e evitar erosão arquitetural na evolução da Phase 1.
+Preservar a coerência do modular monolith e evitar erosão arquitetural na evolução da Phase 2.
 
 ## Arquitetura adotada
 
@@ -53,7 +53,7 @@ interface -> application -> domain
 
 - eventos internos in-process quando a modelagem justificar desacoplamento
 
-### Exceção aceita na Phase 1
+### Exceção aceita até a Phase 2
 
 - contratos síncronos explícitos e pequenos, quando necessários para fechar o fluxo já ativo
 

@@ -41,7 +41,12 @@ type createInvoiceRequest struct {
 func (handler Handler) create(writer http.ResponseWriter, request *http.Request) {
 	var payload createInvoiceRequest
 	if err := httpapi.DecodeJSON(request, &payload); err != nil {
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_request", "invalid JSON payload")
+		httpapi.WriteInputError(writer, request, "invalid JSON payload")
+		return
+	}
+
+	if err := validateCreateInvoiceRequest(payload); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
 		return
 	}
 
@@ -59,8 +64,14 @@ func (handler Handler) create(writer http.ResponseWriter, request *http.Request)
 }
 
 func (handler Handler) listByCustomer(writer http.ResponseWriter, request *http.Request) {
+	customerID := chi.URLParam(request, "id")
+	if err := httpapi.RequireUUID("customer_id", customerID); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
+		return
+	}
+
 	invoices, err := handler.listCustomerInvoice.Execute(request.Context(), usecases.ListCustomerInvoicesInput{
-		CustomerID: chi.URLParam(request, "id"),
+		CustomerID: customerID,
 	})
 	if err != nil {
 		handler.writeError(writer, request, err)
@@ -75,7 +86,7 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 	case errors.Is(err, entities.ErrInvalidCustomerReference),
 		errors.Is(err, entities.ErrInvoiceAmountMustBePositive),
 		errors.Is(err, entities.ErrInvoiceDueDateRequired):
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_invoice", err.Error())
+		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, customerentities.ErrCustomerNotFound):
 		httpapi.WriteError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
 	case errors.Is(err, customerentities.ErrCustomerInactive):
@@ -83,6 +94,20 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 	case errors.Is(err, entities.ErrInvoiceNotFound):
 		httpapi.WriteError(writer, request, http.StatusNotFound, "invoice_not_found", err.Error())
 	default:
-		httpapi.WriteError(writer, request, http.StatusInternalServerError, "internal_error", "internal server error")
+		httpapi.WriteInternalError(writer, request, err)
 	}
+}
+
+func validateCreateInvoiceRequest(payload createInvoiceRequest) error {
+	if err := httpapi.RequireUUID("customer_id", payload.CustomerID); err != nil {
+		return err
+	}
+	if err := httpapi.RequirePositiveInt64("amount_cents", payload.AmountCents); err != nil {
+		return err
+	}
+	if err := httpapi.RequireDate("due_date", payload.DueDate); err != nil {
+		return err
+	}
+
+	return nil
 }

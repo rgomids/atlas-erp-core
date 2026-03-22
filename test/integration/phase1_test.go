@@ -2,16 +2,19 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	customersusecases "github.com/rgomids/atlas-erp-core/internal/customers/application/usecases"
+	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	customerpersistence "github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/persistence"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
 	invoicesusecases "github.com/rgomids/atlas-erp-core/internal/invoices/application/usecases"
 	invoicepersistence "github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/persistence"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
 	paymentsusecases "github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
+	paymententities "github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
 	paymentpersistence "github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/persistence"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
@@ -153,7 +156,42 @@ func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
 		t.Fatalf("process first payment: %v", err)
 	}
 
-	if _, err := processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID}); err == nil {
-		t.Fatal("expected duplicate payment error, got nil")
+	_, err = processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID})
+	if !errors.Is(err, paymententities.ErrPaymentAlreadyExists) {
+		t.Fatalf("expected duplicate payment error, got %v", err)
+	}
+}
+
+func TestPhase1RejectsDuplicateCustomerDocumentWithRealPostgres(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer pool.Close()
+
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository)
+
+	if _, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "12345678900",
+		Email:    "team@atlas.io",
+	}); err != nil {
+		t.Fatalf("create first customer: %v", err)
+	}
+
+	_, err = createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+		Name:     "Atlas Finance",
+		Document: "123.456.789-00",
+		Email:    "finance@atlas.io",
+	})
+	if !errors.Is(err, customerentities.ErrCustomerAlreadyExists) {
+		t.Fatalf("expected duplicate customer error, got %v", err)
 	}
 }

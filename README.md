@@ -1,6 +1,6 @@
 # Atlas ERP Core
 
-Atlas ERP Core e um ERP backend em Go desenhado como modular monolith, com DDD, Clean Architecture e uma trilha de evolucao segura para eventos internos e futura extracao seletiva de modulos.
+Atlas ERP Core é um ERP backend em Go modelado como modular monolith, com DDD, Clean Architecture e observabilidade orientada a rastreabilidade de request.
 
 ## Project Links
 
@@ -8,31 +8,31 @@ Atlas ERP Core e um ERP backend em Go desenhado como modular monolith, com DDD, 
 
 ## Project Status
 
-Current Phase: **Phase 1 — Core Domain**
+Current Phase: **Phase 2 - Quality & Engineering**
 
-## Phase 1 Delivery
+## Phase 2 Delivery
 
-Esta fase entrega o primeiro fluxo funcional ponta a ponta do sistema:
+Esta fase consolida a base funcional da Phase 1 e endurece a plataforma sem adicionar features novas:
+
+- validação explícita na borda HTTP
+- contrato único de erro com `request_id`
+- logs estruturados com `module` e `request_id`
+- cobertura reforçada em domain, application, integration e functional
+- documentação operacional e de engenharia sincronizada com a implementação real
+
+O fluxo principal continua:
 
 `Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`
-
-O escopo implementado nesta fase cobre:
-
-- `customers` com criacao, atualizacao e inativacao logica
-- `invoices` com criacao, listagem por cliente e transicao para `Paid`
-- `payments` com processamento local/mockado e idempotencia minima por invoice
-- persistencia PostgreSQL versionada com migrations por dominio
-- testes unitarios, de integracao e funcionais cobrindo regras centrais e fluxo HTTP
 
 ## Architecture Summary
 
 - Estilo principal: Modular Monolith
 - Modelagem: DDD
-- Organizacao interna: Clean Architecture
-- Runtime atual: um unico processo HTTP em Go
-- Persistencia: PostgreSQL
-- Comunicacao entre modulos na Phase 1: contratos sincronos explicitos
-- Baseline futura: eventos internos in-process, maior observabilidade e reducao adicional de acoplamento
+- Organização interna: Clean Architecture + Ports and Adapters
+- Runtime atual: um único processo HTTP em Go
+- Persistência: PostgreSQL
+- Comunicação entre módulos: contratos síncronos explícitos e pequenos
+- Observabilidade da Phase 2: logging JSON, `request_id` por request e erro HTTP padronizado
 
 ## Implemented Modules
 
@@ -41,50 +41,62 @@ O escopo implementado nesta fase cobre:
 - Aggregate: `Customer`
 - Value objects: `Document`, `Email`
 - Use cases: `CreateCustomer`, `UpdateCustomer`, `DeactivateCustomer`
-- Regras principais: documento unico, email valido, soft delete via status
+- Regras principais: documento único, email válido, inativação lógica
 
 ### Invoices
 
 - Aggregate: `Invoice`
 - Use cases: `CreateInvoice`, `ListCustomerInvoices`
-- Regras principais: customer ativo, `amount_cents > 0`, `due_date` obrigatoria, status `Pending|Paid|Overdue|Cancelled`
+- Regras principais: customer ativo, `amount_cents > 0`, `due_date` obrigatória, invoice imutável após pagamento
 
 ### Payments
 
 - Aggregate: `Payment`
 - Use case: `ProcessPayment`
-- Regras principais: pagamento por invoice, mock gateway auto-approve em runtime, atualizacao da invoice para `Paid` quando aprovado
+- Regras principais: pagamento por invoice, idempotência por `invoice_id`, atualização da invoice para `Paid` quando aprovado
 
 ### Billing
 
-- Continua como scaffold estrutural para fases futuras
+- Permanece como scaffold estrutural para fases futuras
 
 ## Public HTTP Endpoints
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | Healthcheck da aplicacao |
+| `GET` | `/health` | Healthcheck da aplicação |
 | `POST` | `/customers` | Cria cliente |
-| `PUT` | `/customers/{id}` | Atualiza nome e email de cliente |
+| `PUT` | `/customers/{id}` | Atualiza nome e email do cliente |
 | `PATCH` | `/customers/{id}/inactive` | Inativa cliente logicamente |
-| `POST` | `/invoices` | Cria fatura |
-| `GET` | `/customers/{id}/invoices` | Lista faturas do cliente |
+| `POST` | `/invoices` | Cria invoice |
+| `GET` | `/customers/{id}/invoices` | Lista invoices do cliente |
 | `POST` | `/payments` | Processa pagamento mockado |
 
-### JSON Contracts
+## JSON Contracts
 
-- IDs sao UUID strings
-- `amount_cents` e inteiro
+- IDs são UUID strings
+- `amount_cents` é inteiro
 - `due_date` usa `YYYY-MM-DD`
-- erros usam `{ "code", "message", "correlation_id" }`
+- erros usam:
+
+```json
+{
+  "error": "invalid_input",
+  "message": "document is required",
+  "request_id": "req-123"
+}
+```
+
+- o header `X-Correlation-ID` continua sendo aceito e devolvido; o mesmo valor aparece como `request_id` no body de erro e nos logs
 
 ## Directory Structure
 
 ```text
 .
 ├── .agents/
-│   ├── roles/
-│   └── skills/
+│   ├── rules/
+│   ├── skills/
+│   ├── subagents/
+│   └── templates/
 ├── cmd/
 │   ├── api/
 │   └── migrate/
@@ -112,77 +124,90 @@ O escopo implementado nesta fase cobre:
 │   ├── functional/
 │   ├── integration/
 │   └── support/
-├── .github/workflows/
-├── Dockerfile
+├── CHANGELOG.md
 ├── Makefile
-└── docker-compose.yml
+└── README.md
 ```
+
+## Technology Stack
+
+- Go 1.26
+- `chi` for HTTP routing
+- `log/slog` for structured logging
+- `godotenv` for `.env` loading
+- PostgreSQL
+- `pgx/v5` for database access
+- `golang-migrate` for migrations
+- Docker + Docker Compose for local runtime
+- `testcontainers-go` for integration and functional tests with real PostgreSQL
+- GitHub Actions for CI baseline
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `APP_PORT` | Yes | - | HTTP port exposed by the application. |
-| `DB_HOST` | Yes | - | PostgreSQL host for runtime and migrations. |
-| `DB_PORT` | Yes | - | PostgreSQL port. |
-| `DB_USER` | Yes | - | PostgreSQL username. |
-| `DB_PASSWORD` | Yes | - | PostgreSQL password. |
-| `DB_NAME` | Yes | - | PostgreSQL database name. |
-| `APP_NAME` | No | `atlas-erp-core` | Logical application name. |
-| `APP_ENV` | No | `local` | Current environment. |
-| `LOG_LEVEL` | No | `info` | Structured log level. |
-| `CORRELATION_ID_HEADER` | No | `X-Correlation-ID` | Header propagated across requests and logs. |
-
-Nenhuma nova variavel de ambiente foi introduzida na Phase 1.
+| `APP_PORT` | Yes | - | HTTP port exposed by the application |
+| `DB_HOST` | Yes | - | PostgreSQL host |
+| `DB_PORT` | Yes | - | PostgreSQL port |
+| `DB_USER` | Yes | - | PostgreSQL username |
+| `DB_PASSWORD` | Yes | - | PostgreSQL password |
+| `DB_NAME` | Yes | - | PostgreSQL database name |
+| `APP_NAME` | No | `atlas-erp-core` | Logical application name |
+| `APP_ENV` | No | `local` | Current environment |
+| `LOG_LEVEL` | No | `info` | Structured log level |
+| `CORRELATION_ID_HEADER` | No | `X-Correlation-ID` | Header propagated across requests and logs |
 
 ## Local Setup
 
-Pre-requisitos:
+Prerequisites:
 
 - Go 1.26+
-- Docker Desktop ou daemon Docker em execucao
+- Docker Desktop or Docker daemon running
 
-1. Copie o arquivo de ambiente:
+1. Copy the environment file:
 
 ```bash
 make setup
 ```
 
-2. Suba a stack local:
+2. Start the local stack:
 
 ```bash
 make up
 ```
 
-3. Rode as migrations da Phase 1:
+3. Run migrations:
 
 ```bash
 make migrate-up
 ```
 
-4. Valide o healthcheck:
+4. Validate the API:
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-5. Execute o fluxo principal:
+5. Execute the main flow:
 
 ```bash
 curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
+  -H 'X-Correlation-ID: demo-req-001' \
   -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
 
 curl -X POST http://localhost:8080/invoices \
   -H 'Content-Type: application/json' \
+  -H 'X-Correlation-ID: demo-req-002' \
   -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
 
 curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
+  -H 'X-Correlation-ID: demo-req-003' \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
-6. Derrube a stack quando terminar:
+6. Stop the stack:
 
 ```bash
 make down
@@ -190,7 +215,7 @@ make down
 
 ## Main Commands
 
-Os comandos recorrentes estao detalhados em [docs/commands.md](/Users/rgomids/Projects/atlas-erp-core/docs/commands.md).
+Main commands are documented in [docs/commands.md](docs/commands.md).
 
 ```bash
 make setup
@@ -210,23 +235,36 @@ make migrate-down
 
 ## Testing Strategy
 
-- Domain: entidades, value objects e invariantes de `customers`, `invoices` e `payments`
-- Application: casos de uso com fakes para duplicidade, validacao e orquestracao cross-module
-- Integration: PostgreSQL real com `testcontainers-go`, migrations e fluxo de persistencia ponta a ponta
-- Functional: `GET /health` e fluxo HTTP completo da Phase 1
+### Coverage by Layer
+
+- Domain: entities, value objects and invariants for `customers`, `invoices` and `payments`
+- Application: use cases for happy path, validation, conflicts and cross-module orchestration
+- Integration: PostgreSQL real via `testcontainers-go`, including persistence, uniqueness and payment idempotency
+- Functional: HTTP contract, canonical error payload and end-to-end Phase 1 flow
+
+### How to Run Tests
+
+```bash
+make test-unit
+make test-integration
+make test-functional
+make test
+```
 
 ## Observability
 
-- logs estruturados em JSON com `log/slog`
-- correlation ID na borda HTTP
-- erro HTTP padronizado com `code`, `message` e `correlation_id`
-- sem emojis em logs
+- logs are emitted as JSON through `slog`
+- every request carries a `request_id`
+- `request_id` is sourced from `X-Correlation-ID` when present, otherwise generated at the edge
+- request logs include at least `time`, `level`, `msg`, `module` and `request_id`
+- internal failures return generic `internal_error` without leaking technical details
+- logs remain machine-friendly and do not use emoji
 
 ## Documentation
 
-- Arquitetura viva: [AGENTS.md](/Users/rgomids/Projects/atlas-erp-core/AGENTS.md)
-- Roles e skills do projeto: [.agents](/Users/rgomids/Projects/atlas-erp-core/.agents)
-- Comandos operacionais: [docs/commands.md](/Users/rgomids/Projects/atlas-erp-core/docs/commands.md)
-- Diagramas: [docs/diagrams/architecture.md](/Users/rgomids/Projects/atlas-erp-core/docs/diagrams/architecture.md)
-- ADR foundation: [docs/adr/0001-phase-0-foundation.md](/Users/rgomids/Projects/atlas-erp-core/docs/adr/0001-phase-0-foundation.md)
-- ADR core domain: [docs/adr/0002-phase-1-core-domain.md](/Users/rgomids/Projects/atlas-erp-core/docs/adr/0002-phase-1-core-domain.md)
+- Operational contract: [AGENTS.md](AGENTS.md)
+- Commands: [docs/commands.md](docs/commands.md)
+- Architecture diagrams: [docs/diagrams/architecture.md](docs/diagrams/architecture.md)
+- ADR foundation: [docs/adr/0001-phase-0-foundation.md](docs/adr/0001-phase-0-foundation.md)
+- ADR core domain: [docs/adr/0002-phase-1-core-domain.md](docs/adr/0002-phase-1-core-domain.md)
+- Change history: [CHANGELOG.md](CHANGELOG.md)

@@ -52,7 +52,12 @@ type updateCustomerRequest struct {
 func (handler Handler) create(writer http.ResponseWriter, request *http.Request) {
 	var payload createCustomerRequest
 	if err := httpapi.DecodeJSON(request, &payload); err != nil {
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_request", "invalid JSON payload")
+		httpapi.WriteInputError(writer, request, "invalid JSON payload")
+		return
+	}
+
+	if err := validateCreateCustomerRequest(payload); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
 		return
 	}
 
@@ -72,12 +77,23 @@ func (handler Handler) create(writer http.ResponseWriter, request *http.Request)
 func (handler Handler) update(writer http.ResponseWriter, request *http.Request) {
 	var payload updateCustomerRequest
 	if err := httpapi.DecodeJSON(request, &payload); err != nil {
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_request", "invalid JSON payload")
+		httpapi.WriteInputError(writer, request, "invalid JSON payload")
+		return
+	}
+
+	customerID := chi.URLParam(request, "id")
+	if err := validateCustomerID(customerID); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
+		return
+	}
+
+	if err := validateUpdateCustomerRequest(payload); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
 		return
 	}
 
 	customer, err := handler.updateCustomer.Execute(request.Context(), usecases.UpdateCustomerInput{
-		ID:    chi.URLParam(request, "id"),
+		ID:    customerID,
 		Name:  payload.Name,
 		Email: payload.Email,
 	})
@@ -90,8 +106,14 @@ func (handler Handler) update(writer http.ResponseWriter, request *http.Request)
 }
 
 func (handler Handler) deactivate(writer http.ResponseWriter, request *http.Request) {
+	customerID := chi.URLParam(request, "id")
+	if err := validateCustomerID(customerID); err != nil {
+		httpapi.WriteInputError(writer, request, err.Error())
+		return
+	}
+
 	customer, err := handler.deactivateCustomer.Execute(request.Context(), usecases.DeactivateCustomerInput{
-		ID: chi.URLParam(request, "id"),
+		ID: customerID,
 	})
 	if err != nil {
 		handler.writeError(writer, request, err)
@@ -107,7 +129,7 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		errors.Is(err, entities.ErrCustomerNameRequired),
 		errors.Is(err, valueobjects.ErrInvalidDocument),
 		errors.Is(err, valueobjects.ErrInvalidEmail):
-		httpapi.WriteError(writer, request, http.StatusBadRequest, "invalid_customer", err.Error())
+		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, entities.ErrCustomerAlreadyExists):
 		httpapi.WriteError(writer, request, http.StatusConflict, "customer_conflict", err.Error())
 	case errors.Is(err, entities.ErrCustomerNotFound):
@@ -115,6 +137,35 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 	case errors.Is(err, entities.ErrCustomerInactive):
 		httpapi.WriteError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
 	default:
-		httpapi.WriteError(writer, request, http.StatusInternalServerError, "internal_error", "internal server error")
+		httpapi.WriteInternalError(writer, request, err)
 	}
+}
+
+func validateCreateCustomerRequest(payload createCustomerRequest) error {
+	if err := httpapi.RequireNonBlank("name", payload.Name); err != nil {
+		return err
+	}
+	if err := httpapi.RequireNonBlank("document", payload.Document); err != nil {
+		return err
+	}
+	if err := httpapi.RequireNonBlank("email", payload.Email); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateUpdateCustomerRequest(payload updateCustomerRequest) error {
+	if err := httpapi.RequireNonBlank("name", payload.Name); err != nil {
+		return err
+	}
+	if err := httpapi.RequireNonBlank("email", payload.Email); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateCustomerID(customerID string) error {
+	return httpapi.RequireUUID("customer_id", customerID)
 }

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-03-21
+
+### Added
+
+- Canonical HTTP error contract with `error`, `message` and `request_id`.
+- Explicit HTTP boundary validation for customers, invoices and payments handlers.
+- Request-scoped logging enrichment with `module` and `request_id`.
+- Handler-level tests for happy path, invalid input and domain error mapping.
+- Extra application, domain, integration and functional tests for validation, uniqueness and idempotency.
+- Phase 2 status artifact in `.agents/templates/phase-status.md`.
+
+### Changed
+
+- `X-Correlation-ID` is now exposed consistently as `request_id` in error bodies and structured logs.
+- Bootstrap logging now emits `module=bootstrap` and follows the same JSON contract used by request logs.
+- README, AGENTS, commands guide and architecture diagrams now document Phase 2 instead of Phase 1 only.
+- Functional negative-path coverage now validates canonical error payloads and request traceability.
+
+### Fixed
+
+- HTTP handlers no longer rely exclusively on deeper layers for required field, UUID and date validation.
+- Unexpected request failures are now logged at the edge without leaking internal details to clients.
+
 ## [0.2.0] - 2026-03-21
 
 ### Added

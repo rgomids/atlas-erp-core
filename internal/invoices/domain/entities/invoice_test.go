@@ -20,6 +20,23 @@ func TestNewInvoiceRequiresPositiveAmountAndDueDate(t *testing.T) {
 	}
 }
 
+func TestNewInvoiceCreatesPendingInvoice(t *testing.T) {
+	t.Parallel()
+
+	invoice, err := NewInvoice("invoice-id", "customer-id", 1000, time.Date(2026, 3, 25, 14, 0, 0, 0, time.UTC), time.Now())
+	if err != nil {
+		t.Fatalf("expected invoice to be created, got %v", err)
+	}
+
+	if invoice.Status() != StatusPending {
+		t.Fatalf("expected pending invoice, got %q", invoice.Status())
+	}
+
+	if invoice.DueDate().Hour() != 0 {
+		t.Fatalf("expected due date to be normalized, got %s", invoice.DueDate())
+	}
+}
+
 func TestInvoiceMarkPaidMakesInvoiceImmutable(t *testing.T) {
 	t.Parallel()
 
