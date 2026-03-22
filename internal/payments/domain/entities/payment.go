@@ -15,6 +15,7 @@ const (
 
 type Payment struct {
 	id               string
+	billingID        string
 	invoiceID        string
 	status           Status
 	gatewayReference string
@@ -22,9 +23,10 @@ type Payment struct {
 	updatedAt        time.Time
 }
 
-func NewPayment(id, invoiceID string, now time.Time) (Payment, error) {
+func NewPayment(id, billingID, invoiceID string, now time.Time) (Payment, error) {
 	payment := Payment{
 		id:        strings.TrimSpace(id),
+		billingID: strings.TrimSpace(billingID),
 		invoiceID: strings.TrimSpace(invoiceID),
 		status:    StatusPending,
 		createdAt: now.UTC(),
@@ -40,6 +42,7 @@ func NewPayment(id, invoiceID string, now time.Time) (Payment, error) {
 
 func RehydratePayment(
 	id string,
+	billingID string,
 	invoiceID string,
 	status string,
 	gatewayReference string,
@@ -48,6 +51,7 @@ func RehydratePayment(
 ) (Payment, error) {
 	payment := Payment{
 		id:               strings.TrimSpace(id),
+		billingID:        strings.TrimSpace(billingID),
 		invoiceID:        strings.TrimSpace(invoiceID),
 		status:           Status(strings.TrimSpace(status)),
 		gatewayReference: strings.TrimSpace(gatewayReference),
@@ -78,6 +82,9 @@ func (payment Payment) validate() error {
 	if payment.id == "" {
 		return ErrInvalidPaymentID
 	}
+	if payment.billingID == "" {
+		return ErrInvalidBillingReference
+	}
 	if payment.invoiceID == "" {
 		return ErrInvalidInvoiceReference
 	}
@@ -94,6 +101,10 @@ func (payment Payment) ID() string {
 
 func (payment Payment) InvoiceID() string {
 	return payment.invoiceID
+}
+
+func (payment Payment) BillingID() string {
+	return payment.billingID
 }
 
 func (payment Payment) Status() Status {

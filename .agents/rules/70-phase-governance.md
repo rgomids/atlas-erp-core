@@ -2,42 +2,42 @@
 
 ## Objetivo
 
-Controlar evolução por fase sem misturar foundation, core domain e decisões ainda não autorizadas.
+Controlar evolucao por fase sem misturar endurecimento tecnico, comunicacao event-driven e decisoes ainda nao autorizadas.
 
 ## Fase atual
 
-**Phase 2 - Quality & Engineering**
+**Phase 3 - Event-Driven Internal**
 
 ## Escopo permitido nesta fase
 
-- reforçar testes de `customers`, `invoices` e `payments`
-- manter `billing` como scaffold com baixo acoplamento
-- consolidar validação de borda, error handling e observabilidade por request
-- reforçar limites modulares do monolito
-- atualizar runtime, documentação e governança da fase
+- introduzir e consolidar event bus interno sincronico
+- ativar `billing` como modulo operacional do fluxo principal
+- remover acoplamentos diretos entre modulos quando houver alternativa por evento
+- permitir retry manual apos `PaymentFailed`
+- reforcar testes, observabilidade por evento e documentacao da fase
 
-## Fora do escopo por padrão
+## Fora do escopo por padrao
 
-Sem decisão explícita adicional, não iniciar como trabalho principal:
+Sem decisao explicita adicional, nao iniciar como trabalho principal:
 
-- extração de microservices
-- adoção de Redis como dependência mandatória
-- OpenTelemetry como runtime obrigatório nesta fase
-- integrações externas reais que ainda não tenham contrato claro
+- extracao de microservices
+- adocao de Redis como dependencia mandatoria
+- OpenTelemetry como runtime obrigatorio nesta fase
+- integracoes externas reais que ainda nao tenham contrato claro
 - mensageria externa, CQRS ou outbox como trabalho principal
-- paralelização agressiva de agentes sem partição de domínio
-- automação de autoevolução de regras/skills sem revisão humana
+- paralelizacao agressiva de agentes sem particao de dominio
+- automacao de autoevolucao de rules/skills sem revisao humana
 
-## Critérios de avanço de fase
+## Criterios de avanco de fase
 
-Uma evolução de fase deve registrar:
+Uma evolucao de fase deve registrar:
 
 - objetivo da nova fase
-- entregáveis esperados
-- restrições
+- entregaveis esperados
+- restricoes
 - riscos aceitos
-- atualização de `README.md`
-- atualização do artefato de status de fase adotado pelo repositório
+- atualizacao de `README.md`
+- atualizacao do artefato de status de fase adotado pelo repositorio
 
 ## Registro recomendado
 
@@ -45,11 +45,11 @@ Usar `.agents/templates/phase-status.md` para consolidar:
 
 - fase atual
 - objetivo
-- entregáveis
-- critérios de conclusão
-- restrições
-- próximos marcos
+- entregaveis
+- criterios de conclusao
+- restricoes
+- proximos marcos
 
-## Regra de decisão
+## Regra de decisao
 
-Quando uma mudança parecer “grande demais” para a fase atual, registrar como proposta, ADR ou pendência — não empurrar silenciosamente para dentro do escopo corrente.
+Quando uma mudanca parecer “grande demais” para a fase atual, registrar como proposta, ADR ou pendencia — nao empurrar silenciosamente para dentro do escopo corrente.

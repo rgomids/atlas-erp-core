@@ -141,7 +141,7 @@ func newInvoiceTestServer(t *testing.T, repository *invoiceRepositoryStub, check
 	}
 
 	handler := NewHandler(
-		usecases.NewCreateInvoice(repository, checker),
+		usecases.NewCreateInvoice(repository, checker, nil),
 		usecases.NewListCustomerInvoices(repository),
 	)
 

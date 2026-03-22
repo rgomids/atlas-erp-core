@@ -2,12 +2,14 @@ package ports
 
 import (
 	"context"
-
-	invoiceports "github.com/rgomids/atlas-erp-core/internal/invoices/application/ports"
+	"time"
 )
 
 type GatewayRequest struct {
-	Invoice invoiceports.InvoiceSnapshot
+	BillingID   string
+	InvoiceID   string
+	AmountCents int64
+	DueDate     time.Time
 }
 
 type GatewayResult struct {

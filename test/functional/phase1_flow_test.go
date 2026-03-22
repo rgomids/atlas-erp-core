@@ -9,16 +9,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/rgomids/atlas-erp-core/internal/billing"
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
+	paymentports "github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
+	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 	"github.com/rgomids/atlas-erp-core/test/support"
 )
 
-func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
+func TestPhase3HTTPFlowCompletesEndToEndViaInvoiceCreation(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -31,22 +37,7 @@ func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
 	}
 	defer pool.Close()
 
-	logger, err := logging.NewWithWriter("info", &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("create logger: %v", err)
-	}
-
-	customerModule := customers.NewModule(pool)
-	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker())
-	paymentModule := payments.NewModule(pool, invoiceModule.PaymentPort())
-
-	server := httptest.NewServer(httpapi.NewRouter(
-		logger,
-		"X-Correlation-ID",
-		customerModule.Routes,
-		invoiceModule.Routes,
-		paymentModule.Routes,
-	))
+	server := newFunctionalServer(t, pool, integration.NewMockGateway(), &bytes.Buffer{})
 	defer server.Close()
 
 	customerResponse := postJSON(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
@@ -69,20 +60,7 @@ func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
 	decodeResponse(t, invoiceResponse, &invoice)
 
 	if invoice.Status != "Pending" {
-		t.Fatalf("expected pending invoice, got %q", invoice.Status)
-	}
-
-	paymentResponse := postJSON(t, server.URL+"/payments", `{"invoice_id":"`+invoice.ID+`"}`)
-	if paymentResponse.StatusCode != http.StatusCreated {
-		t.Fatalf("expected payment creation status 201, got %d", paymentResponse.StatusCode)
-	}
-
-	var payment struct {
-		Status string `json:"status"`
-	}
-	decodeResponse(t, paymentResponse, &payment)
-	if payment.Status != "Approved" {
-		t.Fatalf("expected approved payment, got %q", payment.Status)
+		t.Fatalf("expected create invoice response to remain pending, got %q", invoice.Status)
 	}
 
 	listResponse, err := server.Client().Get(server.URL + "/customers/" + customer.ID + "/invoices")
@@ -110,11 +88,97 @@ func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
 	}
 
 	if invoicesPayload.Items[0].Status != "Paid" {
-		t.Fatalf("expected paid invoice after payment, got %q", invoicesPayload.Items[0].Status)
+		t.Fatalf("expected paid invoice after automatic flow, got %q", invoicesPayload.Items[0].Status)
 	}
 }
 
-func TestPhase2HTTPInvalidInputReturnsCanonicalErrorAndTraceability(t *testing.T) {
+func TestPhase3HTTPRetryAfterAutomaticFailure(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	failedServer := newFunctionalServer(t, pool, integration.NewMockGatewayWithStatus("Failed"), &bytes.Buffer{})
+	defer failedServer.Close()
+
+	customerResponse := postJSON(t, failedServer.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSON(t, failedServer.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`)
+	if invoiceResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected invoice creation status 201, got %d", invoiceResponse.StatusCode)
+	}
+	var invoice struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, invoiceResponse, &invoice)
+
+	listResponse, err := failedServer.Client().Get(failedServer.URL + "/customers/" + customer.ID + "/invoices")
+	if err != nil {
+		t.Fatalf("list invoices after failed payment: %v", err)
+	}
+	defer listResponse.Body.Close()
+
+	var beforeRetry struct {
+		Items []struct {
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&beforeRetry); err != nil {
+		t.Fatalf("decode invoices before retry: %v", err)
+	}
+
+	if beforeRetry.Items[0].Status != "Pending" {
+		t.Fatalf("expected pending invoice after failed automatic payment, got %q", beforeRetry.Items[0].Status)
+	}
+
+	approvedServer := newFunctionalServer(t, pool, integration.NewMockGateway(), &bytes.Buffer{})
+	defer approvedServer.Close()
+
+	paymentResponse := postJSON(t, approvedServer.URL+"/payments", `{"invoice_id":"`+invoice.ID+`"}`)
+	if paymentResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected manual retry status 201, got %d", paymentResponse.StatusCode)
+	}
+
+	var payment struct {
+		Status string `json:"status"`
+	}
+	decodeResponse(t, paymentResponse, &payment)
+	if payment.Status != "Approved" {
+		t.Fatalf("expected approved retry payment, got %q", payment.Status)
+	}
+
+	finalListResponse, err := approvedServer.Client().Get(approvedServer.URL + "/customers/" + customer.ID + "/invoices")
+	if err != nil {
+		t.Fatalf("list invoices after retry: %v", err)
+	}
+	defer finalListResponse.Body.Close()
+
+	var afterRetry struct {
+		Items []struct {
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(finalListResponse.Body).Decode(&afterRetry); err != nil {
+		t.Fatalf("decode invoices after retry: %v", err)
+	}
+
+	if afterRetry.Items[0].Status != "Paid" {
+		t.Fatalf("expected paid invoice after retry, got %q", afterRetry.Items[0].Status)
+	}
+}
+
+func TestPhase3HTTPInvalidInputReturnsCanonicalErrorAndTraceability(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -128,22 +192,7 @@ func TestPhase2HTTPInvalidInputReturnsCanonicalErrorAndTraceability(t *testing.T
 	defer pool.Close()
 
 	logBuffer := &bytes.Buffer{}
-	logger, err := logging.NewWithWriter("info", logBuffer)
-	if err != nil {
-		t.Fatalf("create logger: %v", err)
-	}
-
-	customerModule := customers.NewModule(pool)
-	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker())
-	paymentModule := payments.NewModule(pool, invoiceModule.PaymentPort())
-
-	server := httptest.NewServer(httpapi.NewRouter(
-		logger,
-		"X-Correlation-ID",
-		customerModule.Routes,
-		invoiceModule.Routes,
-		paymentModule.Routes,
-	))
+	server := newFunctionalServer(t, pool, integration.NewMockGateway(), logBuffer)
 	defer server.Close()
 
 	response := postJSONWithRequestID(t, server.URL+"/customers", `{"name":"Atlas Co","email":"team@atlas.io"}`, "req-functional-002")
@@ -180,6 +229,75 @@ func TestPhase2HTTPInvalidInputReturnsCanonicalErrorAndTraceability(t *testing.T
 			t.Fatalf("expected log output to contain %s, got %s", fragment, logOutput)
 		}
 	}
+}
+
+func TestPhase3HTTPLogsEventsWithEmitterAndConsumerModules(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	logBuffer := &bytes.Buffer{}
+	server := newFunctionalServer(t, pool, integration.NewMockGateway(), logBuffer)
+	defer server.Close()
+
+	customerResponse := postJSONWithRequestID(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`, "req-functional-003")
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSONWithRequestID(t, server.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`, "req-functional-003")
+	defer invoiceResponse.Body.Close()
+
+	if invoiceResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected invoice creation status 201, got %d", invoiceResponse.StatusCode)
+	}
+
+	logOutput := logBuffer.String()
+	for _, fragment := range []string{
+		`"event":"InvoiceCreated"`,
+		`"event":"BillingRequested"`,
+		`"event":"PaymentApproved"`,
+		`"emitter_module":"invoices"`,
+		`"consumer_module":"billing"`,
+		`"consumer_module":"payments"`,
+		`"request_id":"req-functional-003"`,
+	} {
+		if !strings.Contains(logOutput, fragment) {
+			t.Fatalf("expected log output to contain %s, got %s", fragment, logOutput)
+		}
+	}
+}
+
+func newFunctionalServer(t *testing.T, pool *pgxpool.Pool, gateway paymentports.PaymentGateway, logWriter *bytes.Buffer) *httptest.Server {
+	t.Helper()
+
+	logger, err := logging.NewWithWriter("info", logWriter)
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+
+	eventBus := sharedevent.NewSyncBus()
+	customerModule := customers.NewModule(pool, eventBus)
+	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	paymentModule := payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway)
+
+	return httptest.NewServer(httpapi.NewRouter(
+		logger,
+		"X-Correlation-ID",
+		customerModule.Routes,
+		invoiceModule.Routes,
+		paymentModule.Routes,
+	))
 }
 
 func postJSON(t *testing.T, url string, payload string) *http.Response {

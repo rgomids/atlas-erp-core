@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
+	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/valueobjects"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
 type customerRepositoryFake struct {
@@ -58,7 +60,7 @@ func TestCreateCustomerRejectsDuplicateDocument(t *testing.T) {
 	t.Parallel()
 
 	repository := newCustomerRepositoryFake()
-	createCustomer := NewCreateCustomer(repository)
+	createCustomer := NewCreateCustomer(repository, nil)
 	createCustomer.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
 
 	firstCustomer, err := createCustomer.Execute(context.Background(), CreateCustomerInput{
@@ -88,7 +90,7 @@ func TestCreateCustomerCreatesActiveCustomer(t *testing.T) {
 	t.Parallel()
 
 	repository := newCustomerRepositoryFake()
-	createCustomer := NewCreateCustomer(repository)
+	createCustomer := NewCreateCustomer(repository, nil)
 	createCustomer.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
 
 	customer, err := createCustomer.Execute(context.Background(), CreateCustomerInput{
@@ -143,7 +145,7 @@ func TestCreateCustomerRejectsInvalidInput(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			createCustomer := NewCreateCustomer(newCustomerRepositoryFake())
+			createCustomer := NewCreateCustomer(newCustomerRepositoryFake(), nil)
 
 			_, err := createCustomer.Execute(context.Background(), testCase.input)
 			if !errors.Is(err, testCase.expectedErr) {
@@ -158,7 +160,7 @@ func TestUpdateAndDeactivateCustomer(t *testing.T) {
 
 	repository := newCustomerRepositoryFake()
 	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
-	createCustomer := NewCreateCustomer(repository)
+	createCustomer := NewCreateCustomer(repository, nil)
 	createCustomer.now = func() time.Time { return now }
 
 	customer, err := createCustomer.Execute(context.Background(), CreateCustomerInput{
@@ -211,5 +213,38 @@ func TestUpdateCustomerRejectsInvalidCustomerID(t *testing.T) {
 	})
 	if !errors.Is(err, entities.ErrInvalidCustomerID) {
 		t.Fatalf("expected invalid customer id error, got %v", err)
+	}
+}
+
+func TestCreateCustomerPublishesCustomerCreatedEvent(t *testing.T) {
+	t.Parallel()
+
+	repository := newCustomerRepositoryFake()
+	bus := sharedevent.NewSyncBus()
+	var createdEvents []customerevents.CustomerCreated
+
+	sharedevent.Subscribe(bus, customerevents.CustomerCreated{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+		createdEvents = append(createdEvents, event.(customerevents.CustomerCreated))
+		return nil
+	}))
+
+	createCustomer := NewCreateCustomer(repository, bus)
+	createCustomer.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
+
+	customer, err := createCustomer.Execute(context.Background(), CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "12345678900",
+		Email:    "team@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+
+	if len(createdEvents) != 1 {
+		t.Fatalf("expected 1 customer created event, got %d", len(createdEvents))
+	}
+
+	if createdEvents[0].CustomerID != customer.ID {
+		t.Fatalf("expected event customer id %q, got %q", customer.ID, createdEvents[0].CustomerID)
 	}
 }

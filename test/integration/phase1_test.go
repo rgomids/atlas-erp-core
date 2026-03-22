@@ -2,26 +2,26 @@ package integration_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
+	"github.com/rgomids/atlas-erp-core/internal/billing"
+	billingpersistence "github.com/rgomids/atlas-erp-core/internal/billing/infrastructure/persistence"
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	customersusecases "github.com/rgomids/atlas-erp-core/internal/customers/application/usecases"
-	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	customerpersistence "github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/persistence"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
 	invoicesusecases "github.com/rgomids/atlas-erp-core/internal/invoices/application/usecases"
 	invoicepersistence "github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/persistence"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
 	paymentsusecases "github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
-	paymententities "github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
 	paymentpersistence "github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/persistence"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 	"github.com/rgomids/atlas-erp-core/test/support"
 )
 
-func TestPhase1FlowWithRealPostgres(t *testing.T) {
+func TestPhase3FlowWithRealPostgres(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -34,8 +34,14 @@ func TestPhase1FlowWithRealPostgres(t *testing.T) {
 	}
 	defer pool.Close()
 
+	eventBus := sharedevent.NewSyncBus()
+	customerModule := customers.NewModule(pool, eventBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), eventBus, integration.NewMockGateway())
+
 	customerRepository := customerpersistence.NewPostgresRepository(pool)
-	createCustomer := customersusecases.NewCreateCustomer(customerRepository)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, eventBus)
 
 	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
 		Name:     "Atlas Co",
@@ -46,9 +52,8 @@ func TestPhase1FlowWithRealPostgres(t *testing.T) {
 		t.Fatalf("create customer: %v", err)
 	}
 
-	customerModule := customers.NewModule(pool)
 	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
-	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker())
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
 
 	invoice, err := createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
 		CustomerID:  customer.ID,
@@ -57,24 +62,6 @@ func TestPhase1FlowWithRealPostgres(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("create invoice: %v", err)
-	}
-
-	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker())
-	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
-	processPayment := paymentsusecases.NewProcessPayment(
-		paymentRepository,
-		invoiceModule.PaymentPort(),
-		integration.NewMockGateway(),
-		sharedpostgres.NewTxManager(pool),
-	)
-
-	payment, err := processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID})
-	if err != nil {
-		t.Fatalf("process payment: %v", err)
-	}
-
-	if payment.Status != "Approved" {
-		t.Fatalf("expected approved payment, got %q", payment.Status)
 	}
 
 	storedInvoice, err := invoiceRepository.GetByID(ctx, invoice.ID)
@@ -86,26 +73,32 @@ func TestPhase1FlowWithRealPostgres(t *testing.T) {
 		t.Fatalf("expected paid invoice, got %q", storedInvoice.Status())
 	}
 
-	storedPayment, err := paymentRepository.GetByID(ctx, payment.ID)
+	billingRepository := billingpersistence.NewPostgresRepository(pool)
+	storedBilling, err := billingRepository.GetByInvoiceID(ctx, invoice.ID)
 	if err != nil {
-		t.Fatalf("get stored payment: %v", err)
+		t.Fatalf("get stored billing: %v", err)
 	}
 
-	if storedPayment.Status() != "Approved" {
-		t.Fatalf("expected approved stored payment, got %q", storedPayment.Status())
+	if storedBilling.Status() != "Approved" {
+		t.Fatalf("expected approved billing, got %q", storedBilling.Status())
 	}
 
-	customerInvoices, err := invoiceRepository.ListByCustomerID(ctx, customer.ID)
+	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
+	storedPayments, err := paymentRepository.ListByInvoiceID(ctx, invoice.ID)
 	if err != nil {
-		t.Fatalf("list customer invoices: %v", err)
+		t.Fatalf("list payments by invoice: %v", err)
 	}
 
-	if len(customerInvoices) != 1 {
-		t.Fatalf("expected one invoice, got %d", len(customerInvoices))
+	if len(storedPayments) != 1 {
+		t.Fatalf("expected one payment, got %d", len(storedPayments))
+	}
+
+	if storedPayments[0].Status() != "Approved" {
+		t.Fatalf("expected approved payment, got %q", storedPayments[0].Status())
 	}
 }
 
-func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
+func TestPhase3FailureFlowKeepsInvoicePendingAndBillingFailed(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -118,12 +111,14 @@ func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
 	}
 	defer pool.Close()
 
-	customerModule := customers.NewModule(pool)
-	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker())
-	_ = payments.NewModule(pool, invoiceModule.PaymentPort())
+	eventBus := sharedevent.NewSyncBus()
+	customerModule := customers.NewModule(pool, eventBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), eventBus, integration.NewMockGatewayWithStatus("Failed"))
 
 	customerRepository := customerpersistence.NewPostgresRepository(pool)
-	createCustomer := customersusecases.NewCreateCustomer(customerRepository)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, eventBus)
 	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
 		Name:     "Atlas Co",
 		Document: "98765432100",
@@ -134,7 +129,7 @@ func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
 	}
 
 	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
-	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker())
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
 	invoice, err := createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
 		CustomerID:  customer.ID,
 		AmountCents: 1099,
@@ -144,25 +139,41 @@ func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
 		t.Fatalf("create invoice: %v", err)
 	}
 
-	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
-	processPayment := paymentsusecases.NewProcessPayment(
-		paymentRepository,
-		invoiceModule.PaymentPort(),
-		integration.NewMockGateway(),
-		sharedpostgres.NewTxManager(pool),
-	)
-
-	if _, err := processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID}); err != nil {
-		t.Fatalf("process first payment: %v", err)
+	storedInvoice, err := invoiceRepository.GetByID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("get stored invoice: %v", err)
 	}
 
-	_, err = processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID})
-	if !errors.Is(err, paymententities.ErrPaymentAlreadyExists) {
-		t.Fatalf("expected duplicate payment error, got %v", err)
+	if storedInvoice.Status() != "Pending" {
+		t.Fatalf("expected pending invoice after failed payment, got %q", storedInvoice.Status())
+	}
+
+	billingRepository := billingpersistence.NewPostgresRepository(pool)
+	storedBilling, err := billingRepository.GetByInvoiceID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("get stored billing: %v", err)
+	}
+
+	if storedBilling.Status() != "Failed" {
+		t.Fatalf("expected failed billing, got %q", storedBilling.Status())
+	}
+
+	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
+	storedPayments, err := paymentRepository.ListByInvoiceID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("list payments by invoice: %v", err)
+	}
+
+	if len(storedPayments) != 1 {
+		t.Fatalf("expected one failed payment, got %d", len(storedPayments))
+	}
+
+	if storedPayments[0].Status() != "Failed" {
+		t.Fatalf("expected failed payment, got %q", storedPayments[0].Status())
 	}
 }
 
-func TestPhase1RejectsDuplicateCustomerDocumentWithRealPostgres(t *testing.T) {
+func TestPhase3RetryAfterFailureCreatesSecondAttempt(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -175,23 +186,83 @@ func TestPhase1RejectsDuplicateCustomerDocumentWithRealPostgres(t *testing.T) {
 	}
 	defer pool.Close()
 
-	customerRepository := customerpersistence.NewPostgresRepository(pool)
-	createCustomer := customersusecases.NewCreateCustomer(customerRepository)
+	failedBus := sharedevent.NewSyncBus()
+	customerModule := customers.NewModule(pool, failedBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), failedBus)
+	billingModule := billing.NewModule(pool, failedBus)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), failedBus, integration.NewMockGatewayWithStatus("Failed"))
 
-	if _, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, failedBus)
+	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
 		Name:     "Atlas Co",
-		Document: "12345678900",
-		Email:    "team@atlas.io",
-	}); err != nil {
-		t.Fatalf("create first customer: %v", err)
+		Document: "45678912300",
+		Email:    "ops@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
 	}
 
-	_, err = createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
-		Name:     "Atlas Finance",
-		Document: "123.456.789-00",
-		Email:    "finance@atlas.io",
+	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), failedBus)
+	invoice, err := createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
+		CustomerID:  customer.ID,
+		AmountCents: 3200,
+		DueDate:     "2026-03-29",
 	})
-	if !errors.Is(err, customerentities.ErrCustomerAlreadyExists) {
-		t.Fatalf("expected duplicate customer error, got %v", err)
+	if err != nil {
+		t.Fatalf("create invoice: %v", err)
+	}
+
+	retryBus := sharedevent.NewSyncBus()
+	retryCustomerModule := customers.NewModule(pool, retryBus)
+	invoices.NewModule(pool, retryCustomerModule.ExistenceChecker(), retryBus)
+	retryBillingModule := billing.NewModule(pool, retryBus)
+
+	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
+	processBillingRequest := paymentsusecases.NewProcessBillingRequest(
+		paymentRepository,
+		integration.NewMockGateway(),
+		sharedpostgres.NewTxManager(pool),
+		retryBus,
+	)
+	processPayment := paymentsusecases.NewProcessPayment(retryBillingModule.PaymentPort(), processBillingRequest)
+
+	payment, err := processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID})
+	if err != nil {
+		t.Fatalf("retry payment: %v", err)
+	}
+
+	if payment.Status != "Approved" {
+		t.Fatalf("expected approved retry payment, got %q", payment.Status)
+	}
+
+	storedInvoice, err := invoiceRepository.GetByID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("get stored invoice: %v", err)
+	}
+
+	if storedInvoice.Status() != "Paid" {
+		t.Fatalf("expected paid invoice after retry, got %q", storedInvoice.Status())
+	}
+
+	storedPayments, err := paymentRepository.ListByInvoiceID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("list payments by invoice: %v", err)
+	}
+
+	if len(storedPayments) != 2 {
+		t.Fatalf("expected two payment attempts, got %d", len(storedPayments))
+	}
+
+	approvedCount := 0
+	for _, storedPayment := range storedPayments {
+		if storedPayment.Status() == "Approved" {
+			approvedCount++
+		}
+	}
+
+	if approvedCount != 1 {
+		t.Fatalf("expected exactly one approved payment, got %d", approvedCount)
 	}
 }

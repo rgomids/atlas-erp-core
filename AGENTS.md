@@ -1,49 +1,57 @@
 # AGENTS.md
 
-## Missão do projeto
+## Missao do projeto
 
-`atlas-erp-core` evolui um **modular monolith em Go** para o domínio central de ERP, preservando fronteiras explícitas entre módulos, regras de negócio encapsuladas no domínio e uma base operacional simples, reproduzível e auditável.
+`atlas-erp-core` evolui um **modular monolith em Go** para o dominio central de ERP, preservando fronteiras explicitas entre modulos, regras de negocio encapsuladas no dominio e uma base operacional simples, reproduzivel e auditavel.
 
 ## Fase atual
 
-**Phase 2 - Quality & Engineering**
+**Phase 3 - Event-Driven Internal**
 
-Estado de referência desta fase:
+Estado de referencia desta fase:
 
-- foundation da Phase 0 continua válida
+- foundation da Phase 0 continua valida
 - fluxo funcional ponta a ponta da Phase 1 continua ativo
-- contratos HTTP da borda estão padronizados
-- observabilidade por request está consolidada com `request_id`
-- módulos ativos: `customers`, `invoices`, `payments`
-- módulo em scaffold: `billing`
+- endurecimento tecnico da Phase 2 continua valido
+- comunicacao entre modulos agora prioriza **eventos internos in-process**
+- observabilidade por request e por evento esta consolidada com `request_id`
+- modulos ativos: `customers`, `invoices`, `billing`, `payments`
 
-O `README.md` deve sempre refletir a fase atual. Quando a fase mudar, atualizar também `.agents/templates/phase-status.md` ou o artefato de status adotado pelo repositório.
+O `README.md` deve sempre refletir a fase atual. Quando a fase mudar, atualizar tambem `.agents/templates/phase-status.md` ou o artefato de status adotado pelo repositorio.
 
 ## Papel deste arquivo
 
-Este arquivo é o **roteador principal** do engine de agentes.
-Ele define como trabalhar no repositório, quais artefatos carregar por demanda e quais contratos vivos precisam permanecer sincronizados com a implementação.
+Este arquivo e o **roteador principal** do engine de agentes.
+Ele define como trabalhar no repositorio, quais artefatos carregar por demanda e quais contratos vivos precisam permanecer sincronizados com a implementacao.
 
-## Visão geral da arquitetura
+## Visao geral da arquitetura
 
 - estilo principal: **Modular Monolith**
 - modelagem: **DDD**
-- organização interna: **Clean Architecture**
-- integração entre camadas: **Ports and Adapters**
-- persistência: **PostgreSQL** com ownership lógico por módulo
-- observabilidade: logging JSON, `request_id` e erro HTTP canônico
+- organizacao interna: **Clean Architecture**
+- integracao entre camadas: **Ports and Adapters**
+- comunicacao entre modulos: **Internal Event-Driven Communication**
+- persistencia: **PostgreSQL** com ownership logico por modulo
+- observabilidade: logging JSON, `request_id`, `event`, `emitter_module`, `consumer_module` e erro HTTP canonico
 - contrato de fluxo atual:
 
 ```text
-Create Customer -> Create Invoice -> Process Payment -> Invoice Paid
+Create Customer -> Create Invoice -> InvoiceCreated -> BillingRequested -> PaymentApproved -> Invoice Paid
 ```
 
-## Stack tecnológico completo
+- caminho de compatibilidade:
+
+```text
+POST /payments -> reprocessa billing existente apos PaymentFailed
+```
+
+## Stack tecnologico completo
 
 - Go 1.26
 - `chi` para roteamento HTTP
 - `log/slog` para logging estruturado
 - `godotenv` para bootstrap de `.env`
+- Event bus interno sincronico em `internal/shared/event`
 - PostgreSQL
 - `pgx/v5` para acesso ao banco
 - `golang-migrate` para migrations
@@ -53,53 +61,53 @@ Create Customer -> Create Invoice -> Process Payment -> Invoice Paid
 
 ## Ordem de leitura
 
-Leia apenas o necessário para a tarefa atual:
+Leia apenas o necessario para a tarefa atual:
 
 1. este `AGENTS.md`
 2. `.agents/rules/00-global.md`
 3. `.agents/rules/70-phase-governance.md`
 4. a rule especializada da tarefa:
    - arquitetura: `.agents/rules/10-architecture.md`
-   - implementação: `.agents/rules/20-coding.md`
+   - implementacao: `.agents/rules/20-coding.md`
    - testes: `.agents/rules/30-testing.md`
-   - documentação: `.agents/rules/40-documentation.md`
-   - segurança operacional: `.agents/rules/50-security.md`
+   - documentacao: `.agents/rules/40-documentation.md`
+   - seguranca operacional: `.agents/rules/50-security.md`
    - entrega: `.agents/rules/60-delivery.md`
 5. a skill do fluxo, quando houver ganho direto:
    - runtime/config/bootstrap: `.agents/skills/foundation-runtime.md`
-   - domínio/arquitetura: `.agents/skills/modular-monolith-ddd.md`
+   - dominio/arquitetura: `.agents/skills/modular-monolith-ddd.md`
    - testes/TDD: `.agents/skills/testing-and-tdd.md`
-   - observabilidade/operação: `.agents/skills/observability-and-operations.md`
-   - documentação/governança: `.agents/skills/documentation-and-governance.md`
-6. subagentes apenas se houver especialização real e particionamento seguro
+   - observabilidade/operacao: `.agents/skills/observability-and-operations.md`
+   - documentacao/governanca: `.agents/skills/documentation-and-governance.md`
+6. subagentes apenas se houver especializacao real e particionamento seguro
 7. templates apenas no momento de abrir tarefa, revisar ou registrar handoff
 
-## Política de contexto mínimo
+## Politica de contexto minimo
 
-Carregue o mínimo suficiente para executar com segurança:
+Carregue o minimo suficiente para executar com seguranca:
 
-- para mudar um módulo, leia a rule de arquitetura e a skill do domínio correspondente
+- para mudar um modulo, leia a rule de arquitetura e a skill do dominio correspondente
 - para mudar runtime, bootstrap, config, compose, CI ou observabilidade, leia `foundation-runtime.md` e `observability-and-operations.md`
-- para mudar comportamento de domínio, leia `modular-monolith-ddd.md` e `testing-and-tdd.md`
+- para mudar comportamento de dominio, leia `modular-monolith-ddd.md` e `testing-and-tdd.md`
 - para encerrar uma entrega, valide `documentation-and-governance.md` e `review-checklist.md`
-- não abra todos os arquivos de `.agents` por padrão
+- nao abra todos os arquivos de `.agents` por padrao
 
-## Variáveis de ambiente
+## Variaveis de ambiente
 
-| Variável | Obrigatória | Default | Uso |
+| Variavel | Obrigatoria | Default | Uso |
 | --- | --- | --- | --- |
 | `APP_PORT` | Sim | - | Porta HTTP da API |
 | `DB_HOST` | Sim | - | Host do PostgreSQL |
 | `DB_PORT` | Sim | - | Porta do PostgreSQL |
-| `DB_USER` | Sim | - | Usuário do PostgreSQL |
+| `DB_USER` | Sim | - | Usuario do PostgreSQL |
 | `DB_PASSWORD` | Sim | - | Senha do PostgreSQL |
 | `DB_NAME` | Sim | - | Banco do PostgreSQL |
-| `APP_NAME` | Não | `atlas-erp-core` | Nome lógico da aplicação |
-| `APP_ENV` | Não | `local` | Ambiente atual |
-| `LOG_LEVEL` | Não | `info` | Nível de log estruturado |
-| `CORRELATION_ID_HEADER` | Não | `X-Correlation-ID` | Header usado para propagar `request_id` |
+| `APP_NAME` | Nao | `atlas-erp-core` | Nome logico da aplicacao |
+| `APP_ENV` | Nao | `local` | Ambiente atual |
+| `LOG_LEVEL` | Nao | `info` | Nivel de log estruturado |
+| `CORRELATION_ID_HEADER` | Nao | `X-Correlation-ID` | Header usado para propagar `request_id` |
 
-## Estrutura do diretório de conteúdo
+## Estrutura do diretorio de conteudo
 
 ```text
 .
@@ -117,10 +125,16 @@ Carregue o mínimo suficiente para executar com segurança:
 │   └── diagrams/
 ├── internal/
 │   ├── shared/
+│   │   ├── config/
+│   │   ├── correlation/
+│   │   ├── event/
+│   │   ├── http/
+│   │   ├── logging/
+│   │   └── postgres/
 │   ├── customers/
 │   ├── invoices/
-│   ├── payments/
-│   └── billing/
+│   ├── billing/
+│   └── payments/
 ├── migrations/
 ├── test/
 │   ├── functional/
@@ -131,13 +145,13 @@ Carregue o mínimo suficiente para executar com segurança:
 └── README.md
 ```
 
-## Serviços, jobs e models por app
+## Servicos, jobs e models por app
 
 ### Shared
 
-- serviços/capacidades: `config`, `http`, `correlation`, `logging`, `postgres`
+- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `postgres`, `event`
 - jobs: nenhum
-- models: apenas primitives técnicas e utilitários transversais estáveis
+- models: apenas primitives tecnicas e utilitarios transversais estaveis
 
 ### Customers
 
@@ -147,21 +161,21 @@ Carregue o mínimo suficiente para executar com segurança:
 
 ### Invoices
 
-- services/use cases: `CreateInvoice`, `ListCustomerInvoices`
+- services/use cases: `CreateInvoice`, `ListCustomerInvoices`, `ApplyPaymentApproved`
 - jobs: nenhum
 - models: `Invoice`
 
-### Payments
-
-- services/use cases: `ProcessPayment`
-- jobs: nenhum
-- models: `Payment`
-
 ### Billing
 
-- services/use cases: nenhum na fase atual
+- services/use cases: `CreateBillingFromInvoice`, `GetProcessableBillingByInvoiceID`, `MarkBillingApproved`, `MarkBillingFailed`
 - jobs: nenhum
-- models: scaffold vazio
+- models: `Billing`
+
+### Payments
+
+- services/use cases: `ProcessBillingRequest`, `ProcessPayment`
+- jobs: nenhum
+- models: `Payment`
 
 ## Como usar `.agents`
 
@@ -169,8 +183,8 @@ Carregue o mínimo suficiente para executar com segurança:
 .agents/
 ├── rules/       # regras permanentes por responsabilidade
 ├── templates/   # handoff, fase, task brief e review
-├── skills/      # workflows repetitivos e encapsuláveis
-└── subagents/   # especialização por responsabilidade
+├── skills/      # workflows repetitivos e encapsulaveis
+└── subagents/   # especializacao por responsabilidade
 ```
 
 ### Regras
@@ -199,17 +213,17 @@ Carregue o mínimo suficiente para executar com segurança:
 - [`domain-evolution-engineer.md`](.agents/subagents/domain-evolution-engineer.md)
 - [`quality-and-release-guardian.md`](.agents/subagents/quality-and-release-guardian.md)
 
-## Padrões inegociáveis
+## Padroes inegociaveis
 
-- modular monolith com limites explícitos entre módulos
-- DDD para modelagem de domínio
-- clean architecture com dependências apontando para dentro
-- nenhuma regra de negócio em handlers, adapters ou detalhes de infraestrutura
-- banco compartilhado fisicamente não significa acesso livre entre módulos
-- contratos síncronos entre módulos são exceção explícita; preferir eventos internos quando fizer sentido em fases futuras
-- `internal/shared` não pode virar depósito de acoplamento ou regra de negócio
+- modular monolith com limites explicitos entre modulos
+- DDD para modelagem de dominio
+- clean architecture com dependencias apontando para dentro
+- nenhuma regra de negocio em handlers HTTP, adapters ou detalhes de infraestrutura
+- banco compartilhado fisicamente nao significa acesso livre entre modulos
+- comunicacao entre modulos deve preferir eventos internos; chamadas diretas sao excecao explicita
+- `internal/shared` nao pode virar deposito de acoplamento ou regra de negocio
 
-> Se um módulo depender da implementação interna de outro módulo, a arquitetura está quebrada.
+> Se um modulo depender da implementacao interna de outro modulo, a arquitetura esta quebrada.
 
 ## Design patterns do projeto
 
@@ -218,89 +232,95 @@ Carregue o mínimo suficiente para executar com segurança:
 - Clean Architecture
 - Ports and Adapters
 - Repository Pattern
+- Internal Event Bus Pattern
 - Transaction boundary local para fluxos financeiros
-- Request-scoped logging com `request_id`
-- Error mapping explícito entre domínio, aplicação e HTTP
+- Request-scoped e event-scoped logging com `request_id`
+- Error mapping explicito entre dominio, aplicacao e HTTP
 
 ## Common hurdles
 
-### Docker indisponível
+### Docker indisponivel
 
 - sintoma: `docker compose` ou `testcontainers-go` falha
-- ação: validar daemon/socket antes de alterar código
+- acao: validar daemon/socket antes de alterar codigo
 
 ### `request_id` ausente
 
-- sintoma: resposta HTTP sem rastreabilidade
-- ação: revisar `internal/shared/correlation` e o uso do header `X-Correlation-ID`
+- sintoma: resposta HTTP ou log de evento sem rastreabilidade
+- acao: revisar `internal/shared/correlation`, `internal/shared/http` e o uso do header `X-Correlation-ID`
 
-### Divergência entre docs e implementação
+### Evento processado fora de ordem
 
-- sintoma: README, AGENTS, diagrams ou commands não batem com o código
-- ação: corrigir a divergência no mesmo change set; nunca deixar "para depois"
+- sintoma: billing ou invoices em estado inesperado apos pagamento
+- acao: revisar ordem de `Subscribe` no bootstrap e a idempotencia dos handlers
 
-### Flakiness em testes com PostgreSQL real
+### Retry manual sem billing existente
 
-- sintoma: testes de integração/funcionais instáveis
-- ação: evitar `t.Parallel()` em cenários com `testcontainers-go`, validar migrations e isolar fixtures por teste
+- sintoma: `POST /payments` retorna `billing_not_found`
+- acao: validar se a invoice foi criada na Phase 3 e se a cobranca foi persistida antes do retry
 
-### Erro interno vazando detalhe técnico
+### Divergencia entre docs e implementacao
+
+- sintoma: README, AGENTS, diagrams ou commands nao batem com o codigo
+- acao: corrigir a divergencia no mesmo change set; nunca deixar "para depois"
+
+### Erro interno vazando detalhe tecnico
 
 - sintoma: stack trace, query ou erro bruto aparecendo no response
-- ação: mapear para `internal_error`, logar só na borda e preservar mensagem genérica ao cliente
+- acao: mapear para `internal_error`, logar so na borda e preservar mensagem generica ao cliente
 
-## Contrato operacional mínimo
+## Contrato operacional minimo
 
-Antes de iniciar uma mudança:
+Antes de iniciar uma mudanca:
 
 - identificar fase atual e escopo permitido
-- identificar módulo(s) afetado(s)
-- carregar apenas as rules/skills necessárias
-- registrar hipóteses quando o contexto estiver incompleto
+- identificar modulo(s) e eventos afetados
+- carregar apenas as rules/skills necessarias
+- registrar hipoteses quando o contexto estiver incompleto
 
-Antes de concluir uma mudança:
+Antes de concluir uma mudanca:
 
-- validar arquitetura, testes, documentação e impacto operacional
-- registrar limitações, riscos e pendências
+- validar arquitetura, testes, documentacao e impacto operacional
+- registrar limitacoes, riscos e pendencias
 - atualizar `README.md` e `CHANGELOG.md` quando houver impacto relevante
-- atualizar ADR ou diagramas quando a decisão for estrutural
-- gerar handoff compacto se a sessão não encerrar o assunto
+- atualizar ADR ou diagramas quando a decisao for estrutural
+- gerar handoff compacto se a sessao nao encerrar o assunto
 
 ## Regra de handoff
 
-Quando houver interrupção, troca de sessão ou continuação posterior, registrar handoff usando `.agents/templates/handoff.md` com:
+Quando houver interrupcao, troca de sessao ou continuacao posterior, registrar handoff usando `.agents/templates/handoff.md` com:
 
 - objetivo
 - escopo executado
 - arquivos alterados
-- decisões
-- pendências
+- decisoes
+- pendencias
 - riscos
-- evidências de validação
+- evidencias de validacao
 
-## Regra de validação antes de concluir tarefa
+## Regra de validacao antes de concluir tarefa
 
-Nenhuma tarefa deve ser considerada concluída sem evidência proporcional ao risco:
+Nenhuma tarefa deve ser considerada concluida sem evidencia proporcional ao risco:
 
-- código: build/lint/teste compatível com a mudança
+- codigo: build/lint/teste compativel com a mudanca
 - arquitetura: fronteiras preservadas e imports coerentes
 - runtime: comandos principais ainda funcionam
-- documentação: artefatos afetados atualizados
-- segurança: ausência de segredo exposto e ausência de mudança destrutiva implícita
+- documentacao: artefatos afetados atualizados
+- seguranca: ausencia de segredo exposto e ausencia de mudanca destrutiva implicita
 
-## Instruções para CHANGELOG.md
+## Instrucoes para CHANGELOG.md
 
-- se `CHANGELOG.md` não existir, criar antes de concluir a entrega
-- atualizar no mesmo change set da implementação
-- registrar comportamento entregue, não apenas lista de arquivos
-- agrupar por versão, marco ou fase
+- se `CHANGELOG.md` nao existir, criar antes de concluir a entrega
+- atualizar no mesmo change set da implementacao
+- registrar comportamento entregue, nao apenas lista de arquivos
+- agrupar por versao, marco ou fase
 - usar `Added`, `Changed`, `Fixed` e `Removed`
-- não deixar mudança arquitetural, de contrato HTTP, observabilidade ou testes sem registro
+- nao deixar mudanca arquitetural, de contrato HTTP, observabilidade ou testes sem registro
 
-## Instruções para README.md
+## Instrucoes para README.md
 
 - manter sempre alinhado com a fase atual
-- refletir stack, setup, env vars, comandos, endpoints, estratégia de testes e observabilidade
+- refletir stack, setup, env vars, comandos, endpoints, estrategia de testes e observabilidade
 - atualizar exemplos de request/response quando o contrato mudar
 - usar o README como entrada principal para quem for operar ou revisar o projeto
 
@@ -310,23 +330,23 @@ Nenhuma tarefa deve ser considerada concluída sem evidência proporcional ao ri
 - preferir **C4Model** para contexto, containers e componentes
 - atualizar `docs/diagrams/architecture.md` quando mudar fluxo, fronteira modular, observabilidade ou contrato operacional
 
-## Instruções para TDD
+## Instrucoes para TDD
 
-Ciclo obrigatório:
+Ciclo obrigatorio:
 
 1. escrever um teste que falha
-2. implementar o mínimo para fazê-lo passar
+2. implementar o minimo para faze-lo passar
 3. refatorar preservando comportamento
 
 Regras complementares:
 
-- bug corrigido ganha teste de regressão
+- bug corrigido ganha teste de regressao
 - regra nova precisa de teste proporcional ao risco
-- preferir teste de comportamento observável
-- mock não pode esconder regra de negócio
+- preferir teste de comportamento observavel
+- mock nao pode esconder regra de negocio
 - usar `testcontainers-go` quando infraestrutura real fizer parte do comportamento validado
 
-## Checklist pós-implementação
+## Checklist pos-implementacao
 
 - `make fmt`
 - `make lint`
@@ -340,19 +360,19 @@ Regras complementares:
 - revisar `docs/diagrams/architecture.md`
 - revisar `.agents/templates/phase-status.md`
 
-## Quando consultar código, docs ou integrações
+## Quando consultar codigo, docs ou integracoes
 
-Consulte o **código-fonte** quando houver conflito entre documentação e implementação.
-Consulte `README.md`, `docs/commands.md`, `docs/adr/` e `docs/diagrams/` antes de propor mudança estrutural ou operacional.
-Consulte integrações externas, MCP, plugins ou ferramentas adicionais apenas quando a tarefa realmente exigir; por padrão, preferir contexto local do repositório.
+Consulte o **codigo-fonte** quando houver conflito entre documentacao e implementacao.
+Consulte `README.md`, `docs/commands.md`, `docs/adr/` e `docs/diagrams/` antes de propor mudanca estrutural ou operacional.
+Consulte integracoes externas, MCP, plugins ou ferramentas adicionais apenas quando a tarefa realmente exigir; por padrao, preferir contexto local do repositorio.
 
-## Opções avançadas assumidas nesta versão
+## Opcoes avancadas assumidas nesta versao
 
-Assumidas de forma conservadora, até decisão explícita em contrário:
+Assumidas de forma conservadora, ate decisao explicita em contrario:
 
 - **CLI/skills no lugar de MCP:** preferido apenas para fluxos locais simples e repetitivos
-- **autoevolução assistida de rules/skills:** desabilitada por padrão; só com revisão humana
-- **paralelização com múltiplos agentes/worktrees:** desabilitada por padrão; só com partição explícita de domínio e handoff obrigatório
+- **autoevolucao assistida de rules/skills:** desabilitada por padrao; so com revisao humana
+- **paralelizacao com multiplos agentes/worktrees:** desabilitada por padrao; so com particao explicita de dominio e handoff obrigatorio
 
 ## Ordem sugerida de uso no dia a dia
 
@@ -361,5 +381,5 @@ Assumidas de forma conservadora, até decisão explícita em contrário:
 3. `70-phase-governance.md`
 4. rule especializada da tarefa
 5. skill do fluxo
-6. subagente, se houver especialização real
+6. subagente, se houver especializacao real
 7. template de review ou handoff no fechamento

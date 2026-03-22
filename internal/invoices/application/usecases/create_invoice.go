@@ -10,8 +10,10 @@ import (
 	customerports "github.com/rgomids/atlas-erp-core/internal/customers/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/application/dto"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/mappers"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
 type CreateInvoiceInput struct {
@@ -23,16 +25,19 @@ type CreateInvoiceInput struct {
 type CreateInvoice struct {
 	repository             repositories.InvoiceRepository
 	customerExistenceCheck customerports.ExistenceChecker
+	bus                    sharedevent.EventBus
 	now                    func() time.Time
 }
 
 func NewCreateInvoice(
 	repository repositories.InvoiceRepository,
 	customerExistenceCheck customerports.ExistenceChecker,
+	bus sharedevent.EventBus,
 ) CreateInvoice {
 	return CreateInvoice{
 		repository:             repository,
 		customerExistenceCheck: customerExistenceCheck,
+		bus:                    bus,
 		now:                    time.Now,
 	}
 }
@@ -59,6 +64,16 @@ func (usecase CreateInvoice) Execute(ctx context.Context, input CreateInvoiceInp
 
 	if err := usecase.repository.Save(ctx, invoice); err != nil {
 		return dto.Invoice{}, fmt.Errorf("save invoice: %w", err)
+	}
+
+	if err := sharedevent.Publish(ctx, usecase.bus, "invoices", invoiceevents.InvoiceCreated{
+		InvoiceID:   invoice.ID(),
+		CustomerID:  invoice.CustomerID(),
+		AmountCents: invoice.AmountCents(),
+		DueDate:     invoice.DueDate(),
+		CreatedAt:   invoice.CreatedAt(),
+	}); err != nil {
+		return dto.Invoice{}, err
 	}
 
 	return mappers.ToInvoiceDTO(invoice), nil

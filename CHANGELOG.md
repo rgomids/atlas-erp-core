@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-21
+
+### Added
+
+- Internal synchronous event bus in `internal/shared/event` with structured event logging and deterministic handler ordering.
+- Domain event catalog for `customers`, `invoices`, `billing` and `payments`.
+- Active `billing` module with aggregate, persistence, handlers and compatibility port for manual retry.
+- PostgreSQL migrations for `billings` and for `payments.billing_id` plus approved-only uniqueness by invoice.
+- Unit, integration and functional coverage for automatic event flow, payment failure and manual retry.
+- ADR documenting the Phase 3 event-driven transition.
+
+### Changed
+
+- `POST /invoices` now triggers the main billing and payment flow through internal events.
+- `POST /payments` now works as a manual retry path over an existing billing instead of the primary orchestration path.
+- Payments now store one attempt per execution and allow retry after `Failed`, while keeping a single `Approved` per invoice.
+- README, AGENTS, command guide, architecture diagrams and phase status now document Phase 3 instead of Phase 2.
+
+### Fixed
+
+- Direct coupling from `payments` to `invoices` was removed from the primary flow.
+- Billing no longer remains as scaffold only; invoice-to-payment orchestration is now explicit and traceable.
+
 ## [0.3.0] - 2026-03-21
 
 ### Added

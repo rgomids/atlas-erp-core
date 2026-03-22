@@ -7,10 +7,10 @@ C4Context
     title System Context Diagram for Atlas ERP Core
 
     Person(admin, "Administrador", "Usuario interno responsavel pela operacao financeira e administrativa")
-    System(atlas, "Atlas ERP Core", "ERP em monolito modular para clientes, invoices e payments")
+    System(atlas, "Atlas ERP Core", "ERP em monolito modular orientado a eventos internos")
     System_Ext(payment_gateway, "Mock Payment Gateway", "Gateway local usado nas fases atuais")
 
-    Rel(admin, atlas, "Gerencia clientes, emite invoices e processa payments", "HTTPS")
+    Rel(admin, atlas, "Gerencia clientes, emite invoices e acompanha pagamentos", "HTTPS")
     Rel(atlas, payment_gateway, "Solicita processamento de pagamento", "In-process adapter")
 ```
 
@@ -25,8 +25,8 @@ C4Container
 
     System_Boundary(atlas, "Atlas ERP Core") {
         Container(web_api, "Web API", "Go + chi", "Expoe endpoints HTTP, valida payload, propaga request_id e padroniza respostas de erro")
-        Container(app_core, "Application Core", "Go", "Contem use cases, aggregates, ports e adapters dos modulos")
-        ContainerDb(main_db, "PostgreSQL", "Relational Database", "Armazena customers, invoices e payments")
+        Container(app_core, "Application Core", "Go", "Contem modulos de dominio, use cases, handlers de evento e um event bus sincronico in-process")
+        ContainerDb(main_db, "PostgreSQL", "Relational Database", "Armazena customers, invoices, billings e payments")
     }
 
     Rel(admin, web_api, "Usa", "HTTPS")
@@ -35,19 +35,21 @@ C4Container
     Rel(app_core, payment_gateway, "Processa pagamentos", "Port/Adapter")
 ```
 
-## C3 - Phase 2 Components
+## C3 - Phase 3 Components
 
 ```mermaid
 C4Component
-    title Component Diagram for Atlas ERP Core Phase 2
+    title Component Diagram for Atlas ERP Core Phase 3
 
     Container_Boundary(core, "Application Core") {
         Component(router, "HTTP Router", "internal/shared/http", "Registra middleware, validacao de borda, correlation/request_id, error contract e rotas")
-        Component(customers_module, "Customers Module", "application/domain/infrastructure", "Cria, atualiza e inativa clientes")
-        Component(invoices_module, "Invoices Module", "application/domain/infrastructure", "Cria e lista invoices; expoe InvoicePaymentPort")
-        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Processa payment e atualiza invoice quando aprovado")
-        Component(shared_pg, "Postgres Tx Context", "internal/shared/postgres", "Coordena transacoes locais entre adapters")
-        Component(shared_obs, "Structured Logging", "internal/shared/logging + correlation", "Produz logs JSON com module e request_id")
+        Component(event_bus, "Sync Event Bus", "internal/shared/event", "Publica eventos in-process na ordem de inscricao e loga emitter/consumer")
+        Component(customers_module, "Customers Module", "application/domain/infrastructure", "Cria, atualiza e inativa clientes; publica CustomerCreated")
+        Component(invoices_module, "Invoices Module", "application/domain/infrastructure", "Cria e lista invoices; publica InvoiceCreated e consome PaymentApproved")
+        Component(billing_module, "Billing Module", "application/domain/infrastructure", "Cria cobranca por invoice e publica BillingRequested")
+        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Consome BillingRequested, processa pagamento e publica PaymentApproved ou PaymentFailed")
+        Component(shared_pg, "Postgres Tx Context", "internal/shared/postgres", "Coordena transacoes locais para handlers executados dentro do publish")
+        Component(shared_obs, "Structured Logging", "internal/shared/logging + correlation", "Produz logs JSON com module, event, emitter_module, consumer_module e request_id")
     }
 
     ContainerDb(main_db, "PostgreSQL", "Relational Database", "Persistencia transacional")
@@ -55,57 +57,88 @@ C4Component
     Rel(router, customers_module, "HTTP -> use cases")
     Rel(router, invoices_module, "HTTP -> use cases")
     Rel(router, payments_module, "HTTP -> use cases")
-    Rel(router, shared_obs, "Anexa module/request_id")
-    Rel(invoices_module, customers_module, "CustomerExistenceChecker")
-    Rel(payments_module, invoices_module, "InvoicePaymentPort")
+    Rel(customers_module, event_bus, "Publish CustomerCreated")
+    Rel(invoices_module, event_bus, "Publish InvoiceCreated / InvoicePaid")
+    Rel(event_bus, billing_module, "InvoiceCreated / PaymentApproved / PaymentFailed")
+    Rel(event_bus, payments_module, "BillingRequested")
+    Rel(payments_module, event_bus, "Publish PaymentApproved / PaymentFailed")
+    Rel(event_bus, invoices_module, "PaymentApproved")
     Rel(payments_module, shared_pg, "WithinTransaction")
+    Rel(router, shared_obs, "Anexa module/request_id")
+    Rel(event_bus, shared_obs, "Loga eventos")
     Rel(customers_module, main_db, "customers")
     Rel(invoices_module, main_db, "invoices")
+    Rel(billing_module, main_db, "billings")
     Rel(payments_module, main_db, "payments")
 ```
 
-## Sequence - End-to-End Flow
+## Sequence - Automatic Event-Driven Flow
 
 ```mermaid
 sequenceDiagram
     participant Admin
     participant API as Web API
-    participant Customers
     participant Invoices
+    participant Bus as Sync Event Bus
+    participant Billing
     participant Payments
     participant DB as PostgreSQL
     participant Gateway as Mock Gateway
 
-    Admin->>API: POST /customers + X-Correlation-ID
-    API->>API: validate payload + bind request_id
-    API->>Customers: CreateCustomer
-    Customers->>DB: insert customer
-    DB-->>Customers: customer persisted
-    Customers-->>API: customer created
-    API-->>Admin: 201 + domain payload
-
     Admin->>API: POST /invoices + X-Correlation-ID
     API->>API: validate payload + bind request_id
     API->>Invoices: CreateInvoice
-    Invoices->>Customers: ExistsActiveCustomer
-    Customers-->>Invoices: ok
     Invoices->>DB: insert invoice (Pending)
-    DB-->>Invoices: invoice persisted
-    Invoices-->>API: invoice created
-    API-->>Admin: 201 + domain payload
+    Invoices->>Bus: publish InvoiceCreated
+    Bus->>Billing: handle InvoiceCreated
+    Billing->>DB: insert billing (Requested)
+    Billing->>Bus: publish BillingRequested
+    Bus->>Payments: handle BillingRequested
+    Payments->>Gateway: Process
+    Gateway-->>Payments: Approved or Failed
+    Payments->>DB: insert payment attempt
+    alt Approved
+        Payments->>Bus: publish PaymentApproved
+        Bus->>Billing: handle PaymentApproved
+        Billing->>DB: update billing (Approved)
+        Bus->>Invoices: handle PaymentApproved
+        Invoices->>DB: update invoice (Paid)
+        Invoices->>Bus: publish InvoicePaid
+    else Failed
+        Payments->>Bus: publish PaymentFailed
+        Bus->>Billing: handle PaymentFailed
+        Billing->>DB: update billing (Failed)
+    end
+    API-->>Admin: 201 + invoice payload
+```
 
-    Admin->>API: POST /payments + X-Correlation-ID
-    API->>API: validate payload + bind request_id
-    API->>Payments: ProcessPayment
-    Payments->>Invoices: GetPayableInvoice
-    Invoices-->>Payments: invoice snapshot
+## Sequence - Manual Retry
+
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant API as Web API
+    participant Payments
+    participant Billing
+    participant Bus as Sync Event Bus
+    participant DB as PostgreSQL
+    participant Gateway as Mock Gateway
+    participant Invoices
+
+    Admin->>API: POST /payments + invoice_id
+    API->>Payments: ProcessPayment (compat)
+    Payments->>Billing: GetProcessableBillingByInvoiceID
+    Billing->>DB: reactivate billing when status is Failed
+    Billing-->>Payments: billing snapshot
     Payments->>Gateway: Process
     Gateway-->>Payments: Approved
-    Payments->>DB: insert payment
-    Payments->>Invoices: MarkAsPaid
-    Invoices->>DB: update invoice status
-    Payments-->>API: payment approved
-    API-->>Admin: 201 + domain payload
+    Payments->>DB: insert second payment attempt
+    Payments->>Bus: publish PaymentApproved
+    Bus->>Billing: handle PaymentApproved
+    Billing->>DB: update billing (Approved)
+    Bus->>Invoices: handle PaymentApproved
+    Invoices->>DB: update invoice (Paid)
+    API-->>Admin: 201 + payment payload
 ```
 
 ## Sequence - Validation Failure

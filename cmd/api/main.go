@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rgomids/atlas-erp-core/internal/billing"
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
 	"github.com/rgomids/atlas-erp-core/internal/shared/config"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
 	"github.com/rgomids/atlas-erp-core/internal/shared/postgres"
@@ -51,9 +53,11 @@ func run() error {
 	}
 	defer db.Close()
 
-	customerModule := customers.NewModule(db)
-	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker())
-	paymentModule := payments.NewModule(db, invoiceModule.PaymentPort())
+	eventBus := sharedevent.NewSyncBus()
+	customerModule := customers.NewModule(db, eventBus)
+	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(db, eventBus)
+	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, nil)
 
 	server := &http.Server{
 		Addr: cfg.App.Address(),

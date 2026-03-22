@@ -1,6 +1,6 @@
 # Atlas ERP Core
 
-Atlas ERP Core é um ERP backend em Go modelado como modular monolith, com DDD, Clean Architecture e observabilidade orientada a rastreabilidade de request.
+Atlas ERP Core e um ERP backend em Go modelado como modular monolith, com DDD, Clean Architecture e comunicacao interna orientada a eventos para reduzir acoplamento entre modulos.
 
 ## Project Links
 
@@ -8,31 +8,31 @@ Atlas ERP Core é um ERP backend em Go modelado como modular monolith, com DDD, 
 
 ## Project Status
 
-Current Phase: **Phase 2 - Quality & Engineering**
+Current Phase: **Phase 3 - Event-Driven Internal**
 
-## Phase 2 Delivery
+## Phase 3 Delivery
 
-Esta fase consolida a base funcional da Phase 1 e endurece a plataforma sem adicionar features novas:
+Esta fase substitui o acoplamento sincrono entre modulos por um fluxo interno baseado em eventos in-process:
 
-- validação explícita na borda HTTP
-- contrato único de erro com `request_id`
-- logs estruturados com `module` e `request_id`
-- cobertura reforçada em domain, application, integration e functional
-- documentação operacional e de engenharia sincronizada com a implementação real
+- `SyncBus` sincronico em `internal/shared/event`
+- `POST /invoices` agora dispara o fluxo principal `InvoiceCreated -> BillingRequested -> PaymentApproved/PaymentFailed`
+- `POST /payments` permanece como caminho manual de compatibilidade e retry funcional apos falha
+- `billing` deixa de ser scaffold e passa a participar do fluxo principal
+- logs estruturados passam a registrar `event`, `emitter_module`, `consumer_module` e `request_id`
 
-O fluxo principal continua:
+O fluxo principal agora e:
 
-`Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`
+`Create Customer -> Create Invoice -> InvoiceCreated -> BillingRequested -> PaymentApproved -> Invoice Paid`
 
 ## Architecture Summary
 
 - Estilo principal: Modular Monolith
 - Modelagem: DDD
-- Organização interna: Clean Architecture + Ports and Adapters
-- Runtime atual: um único processo HTTP em Go
-- Persistência: PostgreSQL
-- Comunicação entre módulos: contratos síncronos explícitos e pequenos
-- Observabilidade da Phase 2: logging JSON, `request_id` por request e erro HTTP padronizado
+- Organizacao interna: Clean Architecture + Ports and Adapters
+- Comunicacao entre modulos: Event bus interno sincronico
+- Runtime atual: um unico processo HTTP em Go
+- Persistencia: PostgreSQL
+- Observabilidade da Phase 3: logging JSON com `module`, `event`, `emitter_module`, `consumer_module` e `request_id`
 
 ## Implemented Modules
 
@@ -41,40 +41,56 @@ O fluxo principal continua:
 - Aggregate: `Customer`
 - Value objects: `Document`, `Email`
 - Use cases: `CreateCustomer`, `UpdateCustomer`, `DeactivateCustomer`
-- Regras principais: documento único, email válido, inativação lógica
+- Eventos publicados: `CustomerCreated`
 
 ### Invoices
 
 - Aggregate: `Invoice`
-- Use cases: `CreateInvoice`, `ListCustomerInvoices`
-- Regras principais: customer ativo, `amount_cents > 0`, `due_date` obrigatória, invoice imutável após pagamento
+- Use cases: `CreateInvoice`, `ListCustomerInvoices`, `ApplyPaymentApproved`
+- Eventos publicados: `InvoiceCreated`, `InvoicePaid`
+- Regras principais: customer ativo, `amount_cents > 0`, `due_date` obrigatoria, invoice imutavel apos pagamento
+
+### Billing
+
+- Aggregate: `Billing`
+- Use cases: `CreateBillingFromInvoice`, `GetProcessableBillingByInvoiceID`, `MarkBillingApproved`, `MarkBillingFailed`
+- Evento publicado: `BillingRequested`
+- Regras principais: uma cobranca por invoice, reativacao de cobranca falha para retry manual, status `Requested`, `Failed` e `Approved`
 
 ### Payments
 
 - Aggregate: `Payment`
-- Use case: `ProcessPayment`
-- Regras principais: pagamento por invoice, idempotência por `invoice_id`, atualização da invoice para `Paid` quando aprovado
+- Use cases: `ProcessBillingRequest`, `ProcessPayment`
+- Eventos publicados: `PaymentApproved`, `PaymentFailed`
+- Regras principais: uma tentativa por execucao, retry permitido apos `Failed`, no maximo um `Approved` por invoice
 
-### Billing
+## Internal Event Catalog
 
-- Permanece como scaffold estrutural para fases futuras
+| Event | Producer | Consumers |
+| --- | --- | --- |
+| `CustomerCreated` | `customers` | none |
+| `InvoiceCreated` | `invoices` | `billing` |
+| `BillingRequested` | `billing` | `payments` |
+| `PaymentApproved` | `payments` | `billing`, `invoices` |
+| `PaymentFailed` | `payments` | `billing` |
+| `InvoicePaid` | `invoices` | none |
 
 ## Public HTTP Endpoints
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | Healthcheck da aplicação |
+| `GET` | `/health` | Healthcheck da aplicacao |
 | `POST` | `/customers` | Cria cliente |
 | `PUT` | `/customers/{id}` | Atualiza nome e email do cliente |
 | `PATCH` | `/customers/{id}/inactive` | Inativa cliente logicamente |
-| `POST` | `/invoices` | Cria invoice |
+| `POST` | `/invoices` | Cria invoice e dispara o fluxo automatico de billing e payment |
 | `GET` | `/customers/{id}/invoices` | Lista invoices do cliente |
-| `POST` | `/payments` | Processa pagamento mockado |
+| `POST` | `/payments` | Reprocessa manualmente o pagamento de uma invoice com billing existente |
 
 ## JSON Contracts
 
-- IDs são UUID strings
-- `amount_cents` é inteiro
+- IDs sao UUID strings
+- `amount_cents` e inteiro
 - `due_date` usa `YYYY-MM-DD`
 - erros usam:
 
@@ -106,19 +122,23 @@ O fluxo principal continua:
 │   └── diagrams/
 ├── internal/
 │   ├── billing/
+│   │   ├── application/
+│   │   │   ├── handlers/
+│   │   │   ├── ports/
+│   │   │   └── usecases/
+│   │   ├── domain/
+│   │   │   ├── entities/
+│   │   │   ├── events/
+│   │   │   └── repositories/
+│   │   └── infrastructure/
 │   ├── customers/
-│   │   ├── application/
-│   │   ├── domain/
-│   │   └── infrastructure/
 │   ├── invoices/
-│   │   ├── application/
-│   │   ├── domain/
-│   │   └── infrastructure/
 │   ├── payments/
-│   │   ├── application/
-│   │   ├── domain/
-│   │   └── infrastructure/
 │   └── shared/
+│       ├── event/
+│       ├── http/
+│       ├── logging/
+│       └── postgres/
 ├── migrations/
 ├── test/
 │   ├── functional/
@@ -135,6 +155,7 @@ O fluxo principal continua:
 - `chi` for HTTP routing
 - `log/slog` for structured logging
 - `godotenv` for `.env` loading
+- Internal synchronous event bus
 - PostgreSQL
 - `pgx/v5` for database access
 - `golang-migrate` for migrations
@@ -188,7 +209,7 @@ make migrate-up
 curl http://localhost:8080/health
 ```
 
-5. Execute the main flow:
+5. Execute the automatic event-driven flow:
 
 ```bash
 curl -X POST http://localhost:8080/customers \
@@ -201,13 +222,20 @@ curl -X POST http://localhost:8080/invoices \
   -H 'X-Correlation-ID: demo-req-002' \
   -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
 
+curl http://localhost:8080/customers/<customer-id>/invoices \
+  -H 'X-Correlation-ID: demo-req-003'
+```
+
+6. Retry a failed payment manually when needed:
+
+```bash
 curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-003' \
+  -H 'X-Correlation-ID: demo-req-004' \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
-6. Stop the stack:
+7. Stop the stack:
 
 ```bash
 make down
@@ -237,10 +265,10 @@ make migrate-down
 
 ### Coverage by Layer
 
-- Domain: entities, value objects and invariants for `customers`, `invoices` and `payments`
-- Application: use cases for happy path, validation, conflicts and cross-module orchestration
-- Integration: PostgreSQL real via `testcontainers-go`, including persistence, uniqueness and payment idempotency
-- Functional: HTTP contract, canonical error payload and end-to-end Phase 1 flow
+- Domain: entities, value objects, idempotency and status transitions
+- Application: use cases and event handlers for invoice creation, billing generation, payment processing and manual retry
+- Integration: PostgreSQL real via `testcontainers-go`, cobrindo invoice -> billing -> payment -> invoice paid
+- Functional: HTTP contract, canonical error payload, automatic event-driven flow and manual retry path
 
 ### How to Run Tests
 
@@ -255,16 +283,6 @@ make test
 
 - logs are emitted as JSON through `slog`
 - every request carries a `request_id`
+- event logs include at least `event`, `module`, `emitter_module`, `consumer_module` and `request_id`
 - `request_id` is sourced from `X-Correlation-ID` when present, otherwise generated at the edge
-- request logs include at least `time`, `level`, `msg`, `module` and `request_id`
 - internal failures return generic `internal_error` without leaking technical details
-- logs remain machine-friendly and do not use emoji
-
-## Documentation
-
-- Operational contract: [AGENTS.md](AGENTS.md)
-- Commands: [docs/commands.md](docs/commands.md)
-- Architecture diagrams: [docs/diagrams/architecture.md](docs/diagrams/architecture.md)
-- ADR foundation: [docs/adr/0001-phase-0-foundation.md](docs/adr/0001-phase-0-foundation.md)
-- ADR core domain: [docs/adr/0002-phase-1-core-domain.md](docs/adr/0002-phase-1-core-domain.md)
-- Change history: [CHANGELOG.md](CHANGELOG.md)

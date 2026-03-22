@@ -2,7 +2,6 @@ package mappers
 
 import (
 	"github.com/rgomids/atlas-erp-core/internal/invoices/application/dto"
-	"github.com/rgomids/atlas-erp-core/internal/invoices/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
 )
 
@@ -26,14 +25,4 @@ func ToInvoiceDTOs(invoices []entities.Invoice) []dto.Invoice {
 	}
 
 	return items
-}
-
-func ToSnapshot(invoice entities.Invoice) ports.InvoiceSnapshot {
-	return ports.InvoiceSnapshot{
-		ID:          invoice.ID(),
-		CustomerID:  invoice.CustomerID(),
-		AmountCents: invoice.AmountCents(),
-		DueDate:     invoice.DueDate(),
-		Status:      string(invoice.Status()),
-	}
 }

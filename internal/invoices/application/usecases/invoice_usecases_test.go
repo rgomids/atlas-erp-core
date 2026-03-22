@@ -8,7 +8,10 @@ import (
 
 	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/repositories"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
 type invoiceRepositoryFake struct {
@@ -66,7 +69,7 @@ func TestCreateInvoiceRequiresExistingCustomer(t *testing.T) {
 	t.Parallel()
 
 	repository := newInvoiceRepositoryFake()
-	createInvoice := NewCreateInvoice(repository, customerCheckerFake{})
+	createInvoice := NewCreateInvoice(repository, customerCheckerFake{}, nil)
 	createInvoice.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
 
 	invoice, err := createInvoice.Execute(context.Background(), CreateInvoiceInput{
@@ -126,7 +129,7 @@ func TestCreateInvoiceRejectsInvalidInput(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			createInvoice := NewCreateInvoice(newInvoiceRepositoryFake(), customerCheckerFake{})
+			createInvoice := NewCreateInvoice(newInvoiceRepositoryFake(), customerCheckerFake{}, nil)
 
 			_, err := createInvoice.Execute(context.Background(), testCase.input)
 			if !errors.Is(err, testCase.expectedErr) {
@@ -140,7 +143,7 @@ func TestCreateInvoicePropagatesCustomerErrorsAndListsInvoices(t *testing.T) {
 	t.Parallel()
 
 	repository := newInvoiceRepositoryFake()
-	createInvoice := NewCreateInvoice(repository, customerCheckerFake{err: customerentities.ErrCustomerNotFound})
+	createInvoice := NewCreateInvoice(repository, customerCheckerFake{err: customerentities.ErrCustomerNotFound}, nil)
 
 	_, err := createInvoice.Execute(context.Background(), CreateInvoiceInput{
 		CustomerID:  "2af9b675-4c54-4b1e-9e1f-e56028421b6d",
@@ -151,7 +154,7 @@ func TestCreateInvoicePropagatesCustomerErrorsAndListsInvoices(t *testing.T) {
 		t.Fatalf("expected customer not found error, got %v", err)
 	}
 
-	createInvoice = NewCreateInvoice(repository, customerCheckerFake{})
+	createInvoice = NewCreateInvoice(repository, customerCheckerFake{}, nil)
 	createInvoice.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
 
 	customerID := "2af9b675-4c54-4b1e-9e1f-e56028421b6d"
@@ -189,5 +192,91 @@ func TestListCustomerInvoicesRejectsInvalidCustomerID(t *testing.T) {
 	_, err := listInvoices.Execute(context.Background(), ListCustomerInvoicesInput{CustomerID: "invalid"})
 	if !errors.Is(err, entities.ErrInvalidCustomerReference) {
 		t.Fatalf("expected invalid customer reference error, got %v", err)
+	}
+}
+
+func TestCreateInvoicePublishesInvoiceCreatedEvent(t *testing.T) {
+	t.Parallel()
+
+	repository := newInvoiceRepositoryFake()
+	bus := sharedevent.NewSyncBus()
+	var createdEvents []invoiceevents.InvoiceCreated
+
+	sharedevent.Subscribe(bus, invoiceevents.InvoiceCreated{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+		createdEvents = append(createdEvents, event.(invoiceevents.InvoiceCreated))
+		return nil
+	}))
+
+	createInvoice := NewCreateInvoice(repository, customerCheckerFake{}, bus)
+	createInvoice.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
+
+	invoice, err := createInvoice.Execute(context.Background(), CreateInvoiceInput{
+		CustomerID:  "2af9b675-4c54-4b1e-9e1f-e56028421b6d",
+		AmountCents: 1500,
+		DueDate:     "2026-03-25",
+	})
+	if err != nil {
+		t.Fatalf("create invoice: %v", err)
+	}
+
+	if len(createdEvents) != 1 {
+		t.Fatalf("expected 1 invoice created event, got %d", len(createdEvents))
+	}
+
+	if createdEvents[0].InvoiceID != invoice.ID {
+		t.Fatalf("expected invoice id %q, got %q", invoice.ID, createdEvents[0].InvoiceID)
+	}
+}
+
+func TestApplyPaymentApprovedMarksInvoicePaidAndPublishesInvoicePaid(t *testing.T) {
+	t.Parallel()
+
+	repository := newInvoiceRepositoryFake()
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	invoice, err := entities.NewInvoice(
+		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		"2af9b675-4c54-4b1e-9e1f-e56028421b6d",
+		1500,
+		time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+		now,
+	)
+	if err != nil {
+		t.Fatalf("new invoice: %v", err)
+	}
+	if err := repository.Save(context.Background(), invoice); err != nil {
+		t.Fatalf("save invoice: %v", err)
+	}
+
+	bus := sharedevent.NewSyncBus()
+	var paidEvents []invoiceevents.InvoicePaid
+	sharedevent.Subscribe(bus, invoiceevents.InvoicePaid{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+		paidEvents = append(paidEvents, event.(invoiceevents.InvoicePaid))
+		return nil
+	}))
+
+	applyPaymentApproved := NewApplyPaymentApproved(repository, bus)
+
+	err = applyPaymentApproved.Execute(context.Background(), paymentevents.PaymentApproved{
+		PaymentID:        "payment-id",
+		BillingID:        "billing-id",
+		InvoiceID:        invoice.ID(),
+		GatewayReference: "gw-001",
+		ApprovedAt:       now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("apply payment approved: %v", err)
+	}
+
+	storedInvoice, err := repository.GetByID(context.Background(), invoice.ID())
+	if err != nil {
+		t.Fatalf("get invoice: %v", err)
+	}
+
+	if storedInvoice.Status() != entities.StatusPaid {
+		t.Fatalf("expected paid invoice, got %q", storedInvoice.Status())
+	}
+
+	if len(paidEvents) != 1 {
+		t.Fatalf("expected 1 invoice paid event, got %d", len(paidEvents))
 	}
 }
