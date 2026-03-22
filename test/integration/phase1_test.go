@@ -19,8 +19,6 @@ import (
 )
 
 func TestPhase1FlowWithRealPostgres(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -105,8 +103,6 @@ func TestPhase1FlowWithRealPostgres(t *testing.T) {
 }
 
 func TestPhase1RejectsDuplicatePaymentsWithRealPostgres(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()

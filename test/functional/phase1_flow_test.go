@@ -19,8 +19,6 @@ import (
 )
 
 func TestPhase1HTTPFlowCompletesEndToEnd(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()

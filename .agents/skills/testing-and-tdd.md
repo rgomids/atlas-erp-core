@@ -34,6 +34,7 @@ Use esta skill em qualquer mudança que altere comportamento, corrija bug ou adi
 - teste frágil deve ser reescrito
 - mock não substitui regra de negócio
 - cenários com infraestrutura real devem usar `testcontainers-go` quando isso fizer parte do comportamento validado
+- testes que sobem PostgreSQL real com `testcontainers-go` não devem usar `t.Parallel()`; reduzir concorrência de containers evita flakiness no CI
 
 ## Evidência mínima sugerida
 
