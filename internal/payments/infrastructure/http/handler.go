@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	invoiceentities "github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
+	billingentities "github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
@@ -57,11 +57,10 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, entities.ErrPaymentAlreadyExists):
 		httpapi.WriteError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
-	case errors.Is(err, invoiceentities.ErrInvoiceNotFound):
-		httpapi.WriteError(writer, request, http.StatusNotFound, "invoice_not_found", err.Error())
-	case errors.Is(err, invoiceentities.ErrInvoiceImmutable),
-		errors.Is(err, invoiceentities.ErrInvoiceNotPayable):
-		httpapi.WriteError(writer, request, http.StatusConflict, "invoice_not_payable", err.Error())
+	case errors.Is(err, billingentities.ErrBillingNotFound):
+		httpapi.WriteError(writer, request, http.StatusNotFound, "billing_not_found", err.Error())
+	case errors.Is(err, billingentities.ErrBillingAlreadyApproved):
+		httpapi.WriteError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
 	default:
 		httpapi.WriteInternalError(writer, request, err)
 	}

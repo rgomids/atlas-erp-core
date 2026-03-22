@@ -10,19 +10,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rgomids/atlas-erp-core/internal/invoices/application/ports"
-	invoiceentities "github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
+	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
+	billingentities "github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
 	paymentports "github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/repositories"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
 )
 
 type paymentRepositoryStub struct {
 	byID      map[string]entities.Payment
-	byInvoice map[string]string
+	byInvoice map[string][]string
 }
 
 var _ repositories.PaymentRepository = (*paymentRepositoryStub)(nil)
@@ -30,18 +31,23 @@ var _ repositories.PaymentRepository = (*paymentRepositoryStub)(nil)
 func newPaymentRepositoryStub() *paymentRepositoryStub {
 	return &paymentRepositoryStub{
 		byID:      map[string]entities.Payment{},
-		byInvoice: map[string]string{},
+		byInvoice: map[string][]string{},
 	}
 }
 
-func (repository *paymentRepositoryStub) ExistsByInvoiceID(_ context.Context, invoiceID string) (bool, error) {
-	_, exists := repository.byInvoice[invoiceID]
-	return exists, nil
+func (repository *paymentRepositoryStub) HasApprovedByInvoiceID(_ context.Context, invoiceID string) (bool, error) {
+	for _, paymentID := range repository.byInvoice[invoiceID] {
+		if repository.byID[paymentID].Status() == entities.StatusApproved {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (repository *paymentRepositoryStub) Save(_ context.Context, payment entities.Payment) error {
 	repository.byID[payment.ID()] = payment
-	repository.byInvoice[payment.InvoiceID()] = payment.ID()
+	repository.byInvoice[payment.InvoiceID()] = append(repository.byInvoice[payment.InvoiceID()], payment.ID())
 	return nil
 }
 
@@ -54,21 +60,26 @@ func (repository *paymentRepositoryStub) GetByID(_ context.Context, paymentID st
 	return payment, nil
 }
 
-type invoicePaymentPortStub struct {
-	snapshot ports.InvoiceSnapshot
-	getErr   error
+func (repository *paymentRepositoryStub) ListByInvoiceID(_ context.Context, invoiceID string) ([]entities.Payment, error) {
+	var payments []entities.Payment
+	for _, paymentID := range repository.byInvoice[invoiceID] {
+		payments = append(payments, repository.byID[paymentID])
+	}
+
+	return payments, nil
 }
 
-func (port *invoicePaymentPortStub) GetPayableInvoice(context.Context, string) (ports.InvoiceSnapshot, error) {
-	if port.getErr != nil {
-		return ports.InvoiceSnapshot{}, port.getErr
+type billingPortStub struct {
+	snapshot billingports.BillingSnapshot
+	err      error
+}
+
+func (port *billingPortStub) GetProcessableBillingByInvoiceID(context.Context, string) (billingports.BillingSnapshot, error) {
+	if port.err != nil {
+		return billingports.BillingSnapshot{}, port.err
 	}
 
 	return port.snapshot, nil
-}
-
-func (port *invoicePaymentPortStub) MarkAsPaid(context.Context, string, time.Time) error {
-	return nil
 }
 
 type paymentGatewayStub struct {
@@ -88,12 +99,12 @@ func (txManagerStub) WithinTransaction(ctx context.Context, fn func(context.Cont
 func TestCreatePaymentReturnsCreatedPayload(t *testing.T) {
 	t.Parallel()
 
-	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &invoicePaymentPortStub{
-		snapshot: ports.InvoiceSnapshot{
-			ID:          "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
-			CustomerID:  "47df535a-56f3-473d-8f96-3c786bc4c537",
+	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &billingPortStub{
+		snapshot: billingports.BillingSnapshot{
+			ID:          "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+			InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
 			AmountCents: 1599,
-			Status:      "Pending",
+			Status:      "Requested",
 			DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
 		},
 	}, paymentGatewayStub{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "gw-001"}})
@@ -126,7 +137,7 @@ func TestCreatePaymentReturnsCreatedPayload(t *testing.T) {
 func TestCreatePaymentRejectsMissingInvoiceIDAtHTTPBoundary(t *testing.T) {
 	t.Parallel()
 
-	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &invoicePaymentPortStub{}, paymentGatewayStub{})
+	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &billingPortStub{}, paymentGatewayStub{})
 	defer server.Close()
 
 	response := performPaymentRequest(t, server, http.MethodPost, "/payments", `{}`, "req-payment-002")
@@ -135,13 +146,35 @@ func TestCreatePaymentRejectsMissingInvoiceIDAtHTTPBoundary(t *testing.T) {
 	assertPaymentErrorResponse(t, response, http.StatusBadRequest, "invalid_input", "invoice_id is required", "req-payment-002")
 }
 
-func TestCreatePaymentMapsConflictWhenPaymentAlreadyExists(t *testing.T) {
+func TestCreatePaymentMapsConflictWhenApprovedPaymentAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	repository := newPaymentRepositoryStub()
-	repository.byInvoice["1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe"] = "payment-001"
+	approvedPayment, err := entities.RehydratePayment(
+		"payment-001",
+		"a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		"Approved",
+		"gw-001",
+		time.Now().Add(-time.Minute),
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("rehydrate payment: %v", err)
+	}
+	if err := repository.Save(context.Background(), approvedPayment); err != nil {
+		t.Fatalf("seed approved payment: %v", err)
+	}
 
-	server := newPaymentTestServer(t, repository, &invoicePaymentPortStub{}, paymentGatewayStub{})
+	server := newPaymentTestServer(t, repository, &billingPortStub{
+		snapshot: billingports.BillingSnapshot{
+			ID:          "a4a40fd7-50ac-43c6-b6d1-a98ee0952603",
+			InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+			AmountCents: 1599,
+			Status:      "Requested",
+			DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+		},
+	}, paymentGatewayStub{result: paymentports.GatewayResult{Status: "Approved", GatewayReference: "gw-001"}})
 	defer server.Close()
 
 	response := performPaymentRequest(t, server, http.MethodPost, "/payments", `{"invoice_id":"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe"}`, "req-payment-003")
@@ -150,19 +183,19 @@ func TestCreatePaymentMapsConflictWhenPaymentAlreadyExists(t *testing.T) {
 	assertPaymentErrorResponse(t, response, http.StatusConflict, "payment_conflict", "payment already exists for invoice", "req-payment-003")
 }
 
-func TestCreatePaymentMapsInvoiceNotPayable(t *testing.T) {
+func TestCreatePaymentMapsBillingNotFound(t *testing.T) {
 	t.Parallel()
 
-	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &invoicePaymentPortStub{getErr: invoiceentities.ErrInvoiceNotPayable}, paymentGatewayStub{})
+	server := newPaymentTestServer(t, newPaymentRepositoryStub(), &billingPortStub{err: billingentities.ErrBillingNotFound}, paymentGatewayStub{})
 	defer server.Close()
 
 	response := performPaymentRequest(t, server, http.MethodPost, "/payments", `{"invoice_id":"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe"}`, "req-payment-004")
 	defer response.Body.Close()
 
-	assertPaymentErrorResponse(t, response, http.StatusConflict, "invoice_not_payable", "invoice is not payable", "req-payment-004")
+	assertPaymentErrorResponse(t, response, http.StatusNotFound, "billing_not_found", "billing not found", "req-payment-004")
 }
 
-func newPaymentTestServer(t *testing.T, repository *paymentRepositoryStub, invoicePort *invoicePaymentPortStub, gateway paymentGatewayStub) *httptest.Server {
+func newPaymentTestServer(t *testing.T, repository *paymentRepositoryStub, billingPort *billingPortStub, gateway paymentGatewayStub) *httptest.Server {
 	t.Helper()
 
 	logger, err := logging.NewWithWriter("info", &bytes.Buffer{})
@@ -170,12 +203,17 @@ func newPaymentTestServer(t *testing.T, repository *paymentRepositoryStub, invoi
 		t.Fatalf("create logger: %v", err)
 	}
 
+	processBillingRequest := usecases.NewProcessBillingRequest(
+		repository,
+		gateway,
+		txManagerStub{},
+		sharedevent.NewSyncBus(),
+	)
+
 	handler := NewHandler(
 		usecases.NewProcessPayment(
-			repository,
-			invoicePort,
-			gateway,
-			txManagerStub{},
+			billingPort,
+			processBillingRequest,
 		),
 	)
 

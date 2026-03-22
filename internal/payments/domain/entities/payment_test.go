@@ -8,7 +8,7 @@ import (
 func TestPaymentTransitions(t *testing.T) {
 	t.Parallel()
 
-	payment, err := NewPayment("payment-id", "invoice-id", time.Now())
+	payment, err := NewPayment("payment-id", "billing-id", "invoice-id", time.Now())
 	if err != nil {
 		t.Fatalf("create payment: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestPaymentTransitions(t *testing.T) {
 func TestNewPaymentCreatesPendingPayment(t *testing.T) {
 	t.Parallel()
 
-	payment, err := NewPayment("payment-id", "invoice-id", time.Now())
+	payment, err := NewPayment("payment-id", "billing-id", "invoice-id", time.Now())
 	if err != nil {
 		t.Fatalf("expected payment to be created, got %v", err)
 	}
@@ -48,7 +48,7 @@ func TestNewPaymentCreatesPendingPayment(t *testing.T) {
 func TestNewPaymentRequiresInvoiceReference(t *testing.T) {
 	t.Parallel()
 
-	if _, err := NewPayment("payment-id", "", time.Now()); err != ErrInvalidInvoiceReference {
+	if _, err := NewPayment("payment-id", "billing-id", "", time.Now()); err != ErrInvalidInvoiceReference {
 		t.Fatalf("expected invalid invoice reference, got %v", err)
 	}
 }

@@ -1,0 +1,195 @@
+package usecases
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
+	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
+	"github.com/rgomids/atlas-erp-core/internal/billing/domain/repositories"
+	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
+)
+
+type billingRepositoryFake struct {
+	byID      map[string]entities.Billing
+	byInvoice map[string]string
+}
+
+var _ repositories.BillingRepository = (*billingRepositoryFake)(nil)
+
+func newBillingRepositoryFake() *billingRepositoryFake {
+	return &billingRepositoryFake{
+		byID:      map[string]entities.Billing{},
+		byInvoice: map[string]string{},
+	}
+}
+
+func (repository *billingRepositoryFake) Save(_ context.Context, billing entities.Billing) error {
+	if _, exists := repository.byInvoice[billing.InvoiceID()]; exists {
+		return entities.ErrBillingAlreadyExists
+	}
+
+	repository.byID[billing.ID()] = billing
+	repository.byInvoice[billing.InvoiceID()] = billing.ID()
+	return nil
+}
+
+func (repository *billingRepositoryFake) GetByID(_ context.Context, billingID string) (entities.Billing, error) {
+	billing, exists := repository.byID[billingID]
+	if !exists {
+		return entities.Billing{}, entities.ErrBillingNotFound
+	}
+
+	return billing, nil
+}
+
+func (repository *billingRepositoryFake) GetByInvoiceID(_ context.Context, invoiceID string) (entities.Billing, error) {
+	billingID, exists := repository.byInvoice[invoiceID]
+	if !exists {
+		return entities.Billing{}, entities.ErrBillingNotFound
+	}
+
+	return repository.byID[billingID], nil
+}
+
+func (repository *billingRepositoryFake) Update(_ context.Context, billing entities.Billing) error {
+	if _, exists := repository.byID[billing.ID()]; !exists {
+		return entities.ErrBillingNotFound
+	}
+
+	repository.byID[billing.ID()] = billing
+	repository.byInvoice[billing.InvoiceID()] = billing.ID()
+	return nil
+}
+
+func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
+	t.Parallel()
+
+	repository := newBillingRepositoryFake()
+	bus := sharedevent.NewSyncBus()
+	var requestedEvents []billingevents.BillingRequested
+
+	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+		requestedEvents = append(requestedEvents, event.(billingevents.BillingRequested))
+		return nil
+	}))
+
+	createBilling := NewCreateBillingFromInvoice(repository, bus)
+	createBilling.now = func() time.Time { return time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC) }
+
+	billing, err := createBilling.Execute(context.Background(), CreateBillingFromInvoiceInput{
+		InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		AmountCents: 1599,
+		DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("create billing: %v", err)
+	}
+
+	if billing.Status != "Requested" {
+		t.Fatalf("expected requested billing, got %q", billing.Status)
+	}
+
+	if len(requestedEvents) != 1 {
+		t.Fatalf("expected 1 billing requested event, got %d", len(requestedEvents))
+	}
+}
+
+func TestCreateBillingFromInvoiceIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	repository := newBillingRepositoryFake()
+	bus := sharedevent.NewSyncBus()
+	eventCount := 0
+
+	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+		eventCount++
+		return nil
+	}))
+
+	createBilling := NewCreateBillingFromInvoice(repository, bus)
+	input := CreateBillingFromInvoiceInput{
+		InvoiceID:   "1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		AmountCents: 1599,
+		DueDate:     time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+	}
+
+	if _, err := createBilling.Execute(context.Background(), input); err != nil {
+		t.Fatalf("create first billing: %v", err)
+	}
+
+	if _, err := createBilling.Execute(context.Background(), input); err != nil {
+		t.Fatalf("create duplicate billing: %v", err)
+	}
+
+	if len(repository.byID) != 1 {
+		t.Fatalf("expected a single stored billing, got %d", len(repository.byID))
+	}
+
+	if eventCount != 1 {
+		t.Fatalf("expected a single billing requested event, got %d", eventCount)
+	}
+}
+
+func TestGetProcessableBillingByInvoiceIDReactivatesFailedBilling(t *testing.T) {
+	t.Parallel()
+
+	repository := newBillingRepositoryFake()
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	billing, err := entities.NewBilling(
+		"billing-id",
+		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		1599,
+		time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+		now,
+	)
+	if err != nil {
+		t.Fatalf("new billing: %v", err)
+	}
+	billing.MarkFailed(now.Add(time.Minute))
+	if err := repository.Save(context.Background(), billing); err != nil {
+		t.Fatalf("save billing: %v", err)
+	}
+
+	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository)
+	getProcessableBilling.now = func() time.Time { return now.Add(2 * time.Minute) }
+
+	processableBilling, err := getProcessableBilling.Execute(context.Background(), billing.InvoiceID())
+	if err != nil {
+		t.Fatalf("get processable billing: %v", err)
+	}
+
+	if processableBilling.Status != "Requested" {
+		t.Fatalf("expected requested billing after reactivation, got %q", processableBilling.Status)
+	}
+}
+
+func TestGetProcessableBillingByInvoiceIDRejectsApprovedBilling(t *testing.T) {
+	t.Parallel()
+
+	repository := newBillingRepositoryFake()
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	billing, err := entities.NewBilling(
+		"billing-id",
+		"1adf3d42-7b1d-4d2b-a7d6-5d977b7576fe",
+		1599,
+		time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC),
+		now,
+	)
+	if err != nil {
+		t.Fatalf("new billing: %v", err)
+	}
+	billing.MarkApproved(now.Add(time.Minute))
+	if err := repository.Save(context.Background(), billing); err != nil {
+		t.Fatalf("save billing: %v", err)
+	}
+
+	getProcessableBilling := NewGetProcessableBillingByInvoiceID(repository)
+
+	_, err = getProcessableBilling.Execute(context.Background(), billing.InvoiceID())
+	if !errors.Is(err, entities.ErrBillingAlreadyApproved) {
+		t.Fatalf("expected billing already approved error, got %v", err)
+	}
+}

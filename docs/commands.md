@@ -36,7 +36,7 @@ make migrate-down
 curl http://localhost:8080/health
 ```
 
-## Fluxo principal da aplicação
+## Fluxo principal da aplicacao
 
 ### 1. Criar cliente
 
@@ -63,7 +63,7 @@ curl -X PATCH http://localhost:8080/customers/<customer-id>/inactive \
   -H 'X-Correlation-ID: demo-req-003'
 ```
 
-### 4. Criar invoice
+### 4. Criar invoice e disparar o fluxo automatico
 
 ```bash
 curl -X POST http://localhost:8080/invoices \
@@ -79,7 +79,7 @@ curl http://localhost:8080/customers/<customer-id>/invoices \
   -H 'X-Correlation-ID: demo-req-005'
 ```
 
-### 6. Processar pagamento
+### 6. Retry manual de pagamento apos falha
 
 ```bash
 curl -X POST http://localhost:8080/payments \
@@ -88,9 +88,9 @@ curl -X POST http://localhost:8080/payments \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
-## Contrato de erro canônico
+## Contrato de erro canonico
 
-### Exemplo de erro de validação
+### Exemplo de erro de validacao
 
 ```bash
 curl -X POST http://localhost:8080/customers \

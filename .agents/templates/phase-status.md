@@ -2,45 +2,51 @@
 
 ## Fase corrente
 
-- Nome: Phase 2 - Quality & Engineering
+- Nome: Phase 3 - Event-Driven Internal
 - Status: active
 
 ## Objetivo da fase
 
-Transformar a base funcional da Phase 1 em uma plataforma profissional, rastreável e validada por testes em todas as camadas críticas.
+Reduzir acoplamento entre modulos com eventos internos in-process, ativar `billing` no fluxo principal e preparar o sistema para resiliencia e evolucao distribuida futura.
 
 ## Escopo permitido
 
-- reforçar testes de domínio, aplicação, integração e fluxo funcional
-- consolidar validação de entrada e contrato HTTP de erro
-- ampliar observabilidade com `request_id`, `module` e logs JSON
+- introduzir event bus interno sincronico
+- substituir orquestracao direta entre modulos por eventos internos
+- ativar `billing` com persistencia e handlers
+- permitir retry manual apos `PaymentFailed`
+- reforcar observabilidade por evento e documentacao da nova fase
 
-## Entregáveis esperados
+## Entregaveis esperados
 
-- suíte de testes cobrindo regras críticas e cenários de regressão
-- erro HTTP canônico com `error`, `message` e `request_id`
-- documentação viva sincronizada com a implementação real
+- fluxo principal disparado por `POST /invoices` e fechado por eventos internos
+- `billing` persistido e integrado ao ciclo financeiro
+- pagamentos com multiplas tentativas e unicidade apenas para `Approved`
+- logs com `event`, `emitter_module`, `consumer_module` e `request_id`
+- README, AGENTS, commands, diagrams, ADR e changelog atualizados
 
-## Critérios de conclusão
+## Criterios de conclusao
 
-- fluxo principal segue verde ponta a ponta
-- erros e logs são rastreáveis por request
-- README, AGENTS, commands, diagrams e changelog foram atualizados
+- event bus interno funcional e coberto por testes
+- fluxo automatico e retry manual estao verdes ponta a ponta
+- billing deixa de ser scaffold e participa do runtime oficial
+- documentacao critica reflete a arquitetura da Phase 3
 
-## Restrições
+## Restricoes
 
-- não adicionar novos domínios
-- não introduzir mensageria externa, CQRS ou outbox nesta fase
-- não alterar regras de negócio existentes sem necessidade
+- nao introduzir Kafka, SQS ou qualquer mensageria externa
+- nao implementar outbox pattern nesta fase
+- nao migrar para microservices
+- nao adicionar goroutines complexas ou persistencia de eventos
 
 ## Riscos aceitos
 
-- logs de falha muito cedo no bootstrap ainda dependem do logger default antes da configuração completa
-- `billing` continua scaffold e fora do fluxo principal
-- cobertura permanece orientada a risco, não a percentual absoluto
+- `InvoiceCreated` e publicado fora da transacao de criacao da invoice
+- falha tecnica downstream ainda pode devolver erro HTTP com invoice ja persistida
+- retry automatico e resiliencia avancada continuam fora da fase
 
-## Próximos marcos
+## Proximos marcos
 
-- avaliar eventos internos para reduzir acoplamento entre módulos
-- preparar resiliência adicional para pagamentos e billing
-- aprofundar observabilidade com métricas e tracing quando a fase permitir
+- avaliar outbox e retry tecnico para eventos internos
+- aprofundar observabilidade com metricas e tracing
+- preparar criterios e contratos para possivel extracao de modulos

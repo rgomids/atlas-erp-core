@@ -25,12 +25,13 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
-func (repository *PostgresRepository) ExistsByInvoiceID(ctx context.Context, invoiceID string) (bool, error) {
+func (repository *PostgresRepository) HasApprovedByInvoiceID(ctx context.Context, invoiceID string) (bool, error) {
 	const query = `
 		SELECT EXISTS (
 			SELECT 1
 			FROM payments
 			WHERE invoice_id = $1
+			  AND status = 'Approved'
 		)
 	`
 
@@ -46,14 +47,15 @@ func (repository *PostgresRepository) ExistsByInvoiceID(ctx context.Context, inv
 
 func (repository *PostgresRepository) Save(ctx context.Context, payment entities.Payment) error {
 	const query = `
-		INSERT INTO payments (id, invoice_id, status, gateway_reference, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO payments (id, billing_id, invoice_id, status, gateway_reference, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	_, err := sharedpostgres.ExecutorFromContext(ctx, repository.pool).Exec(
 		ctx,
 		query,
 		payment.ID(),
+		payment.BillingID(),
 		payment.InvoiceID(),
 		payment.Status(),
 		payment.GatewayReference(),
@@ -72,13 +74,14 @@ func (repository *PostgresRepository) Save(ctx context.Context, payment entities
 
 func (repository *PostgresRepository) GetByID(ctx context.Context, paymentID string) (entities.Payment, error) {
 	const query = `
-		SELECT id, invoice_id, status, gateway_reference, created_at, updated_at
+		SELECT id, billing_id, invoice_id, status, gateway_reference, created_at, updated_at
 		FROM payments
 		WHERE id = $1
 	`
 
 	var (
 		id               string
+		billingID        string
 		invoiceID        string
 		status           string
 		gatewayReference string
@@ -88,7 +91,7 @@ func (repository *PostgresRepository) GetByID(ctx context.Context, paymentID str
 
 	err := sharedpostgres.ExecutorFromContext(ctx, repository.pool).
 		QueryRow(ctx, query, paymentID).
-		Scan(&id, &invoiceID, &status, &gatewayReference, &createdAt, &updatedAt)
+		Scan(&id, &billingID, &invoiceID, &status, &gatewayReference, &createdAt, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entities.Payment{}, entities.ErrInvalidPaymentID
 	}
@@ -96,12 +99,57 @@ func (repository *PostgresRepository) GetByID(ctx context.Context, paymentID str
 		return entities.Payment{}, fmt.Errorf("query payment by id: %w", err)
 	}
 
-	payment, err := entities.RehydratePayment(id, invoiceID, status, gatewayReference, createdAt, updatedAt)
+	payment, err := entities.RehydratePayment(id, billingID, invoiceID, status, gatewayReference, createdAt, updatedAt)
 	if err != nil {
 		return entities.Payment{}, fmt.Errorf("rehydrate payment: %w", err)
 	}
 
 	return payment, nil
+}
+
+func (repository *PostgresRepository) ListByInvoiceID(ctx context.Context, invoiceID string) ([]entities.Payment, error) {
+	const query = `
+		SELECT id, billing_id, invoice_id, status, gateway_reference, created_at, updated_at
+		FROM payments
+		WHERE invoice_id = $1
+		ORDER BY created_at ASC
+	`
+
+	rows, err := sharedpostgres.ExecutorFromContext(ctx, repository.pool).Query(ctx, query, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("query payments by invoice: %w", err)
+	}
+	defer rows.Close()
+
+	var payments []entities.Payment
+	for rows.Next() {
+		var (
+			id               string
+			billingID        string
+			scannedInvoiceID string
+			status           string
+			gatewayReference string
+			createdAt        time.Time
+			updatedAt        time.Time
+		)
+
+		if err := rows.Scan(&id, &billingID, &scannedInvoiceID, &status, &gatewayReference, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan payment row: %w", err)
+		}
+
+		payment, err := entities.RehydratePayment(id, billingID, scannedInvoiceID, status, gatewayReference, createdAt, updatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("rehydrate payment row: %w", err)
+		}
+
+		payments = append(payments, payment)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate payment rows: %w", err)
+	}
+
+	return payments, nil
 }
 
 func isUniqueViolation(err error) bool {

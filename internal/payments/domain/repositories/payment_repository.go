@@ -7,7 +7,8 @@ import (
 )
 
 type PaymentRepository interface {
-	ExistsByInvoiceID(ctx context.Context, invoiceID string) (bool, error)
+	HasApprovedByInvoiceID(ctx context.Context, invoiceID string) (bool, error)
 	Save(ctx context.Context, payment entities.Payment) error
 	GetByID(ctx context.Context, paymentID string) (entities.Payment, error)
+	ListByInvoiceID(ctx context.Context, invoiceID string) ([]entities.Payment, error)
 }

@@ -137,7 +137,7 @@ func newCustomerTestServer(t *testing.T, repository *customerRepositoryStub) *ht
 	}
 
 	handler := NewHandler(
-		usecases.NewCreateCustomer(repository),
+		usecases.NewCreateCustomer(repository, nil),
 		usecases.NewUpdateCustomer(repository),
 		usecases.NewDeactivateCustomer(repository),
 	)

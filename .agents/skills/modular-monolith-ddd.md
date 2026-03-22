@@ -23,11 +23,8 @@ Use esta skill ao:
 
 - `customers`
 - `invoices`
-- `payments`
-
-### Em scaffold
-
 - `billing`
+- `payments`
 
 ## Guardrails
 
@@ -36,6 +33,7 @@ Use esta skill ao:
 - não usar `internal/shared` para mascarar acoplamento
 - não introduzir integração externa real antes de contrato claro
 - preferir linguagem de domínio explícita
+- preferir eventos internos ao expandir o fluxo financeiro
 
 ## Critérios de saída
 
