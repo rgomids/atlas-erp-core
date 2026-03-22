@@ -10,8 +10,6 @@ import (
 )
 
 func TestOpenConnectsAndPingsPostgres(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()
@@ -24,8 +22,6 @@ func TestOpenConnectsAndPingsPostgres(t *testing.T) {
 }
 
 func TestRunMigrationsExecutesFoundationFiles(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
 	databaseConfig, cleanup := support.StartPostgres(ctx, t)
 	defer cleanup()

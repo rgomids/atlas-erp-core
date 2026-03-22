@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-21
+
+### Added
+
+- Phase 1 core domain flow: `Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`.
+- `customers`, `invoices` and `payments` modules with domain, application and infrastructure layers.
+- PostgreSQL migrations for `customers`, `invoices` and `payments`.
+- HTTP endpoints for customer lifecycle, invoice creation/listing and payment processing.
+- Domain, application, integration and functional tests for the first end-to-end flow.
+- ADR for Phase 1 core domain architecture and updated Mermaid/C4 diagrams.
+
+### Changed
+
+- Router composition now wires business modules in addition to `GET /health`.
+- Cross-module collaboration now uses explicit synchronous ports between `customers`, `invoices` and `payments`.
+- Functional `health` test no longer depends on PostgreSQL, reducing CI flakiness.
+- README, AGENTS, commands guide and project skills now reflect Phase 1 instead of Phase 0 only.
+
 ## [0.1.0] - 2026-03-21
 
 ### Added

@@ -1,67 +1,34 @@
 # Skill: Documentation and Governance
 
-## Objetivo
+## Quando usar
 
-Garantir que a evolução técnica do projeto continue documentada, rastreável e coerente com a arquitetura vigente.
+Use esta skill sempre que a mudança afetar entendimento, operação ou evolução do sistema.
 
-## Documentos obrigatórios
+## Contexto mínimo a carregar
 
-- `AGENTS.md`
+- `.agents/rules/40-documentation.md`
+- `.agents/rules/60-delivery.md`
+- `.agents/rules/70-phase-governance.md`
+
+## Documentos que normalmente precisam de revisão
+
 - `README.md`
 - `CHANGELOG.md`
 - `docs/commands.md`
 - `docs/adr/`
 - `docs/diagrams/`
+- `AGENTS.md` e arquivos correlatos em `.agents`
 
-## Quando atualizar
+## Perguntas de fechamento
 
-Atualize a documentação sempre que houver mudança em:
+- a fase atual continua corretamente refletida?
+- a mudança alterou comando, config, stack ou fluxo operacional?
+- houve decisão estrutural que merece ADR?
+- o diagrama ficou desatualizado?
+- handoff ou checklist de review precisam ser atualizados?
 
-- arquitetura ou limites modulares
-- stack tecnológica
-- variáveis de ambiente
-- estrutura de diretórios
-- comandos operacionais
-- observabilidade e logging
-- estratégia de testes
-- novos módulos, services, jobs ou models de referência
+## Critério de saída
 
-## CHANGELOG
-
-Regras:
-
-- registrar toda evolução relevante
-- agrupar por versão ou marco
-- separar `Added`, `Changed`, `Fixed` e `Removed`
-- atualizar no mesmo conjunto de mudanças do código
-
-## README
-
-Deve refletir:
-
-- fase atual
-- visão geral do sistema
-- stack
-- setup local
-- variáveis de ambiente
-- comandos
-- estratégia de testes
-- links de documentação relevante
-
-## ADR e diagramas
-
-- decisão estrutural relevante exige ADR
-- mudança arquitetural relevante exige atualização dos diagramas Mermaid/C4
-
-## Checklist pós-implementação
-
-- limites modulares preservados
-- domínio sem dependência de infraestrutura
-- testes atualizados
-- logs e correlation ID preservados
-- `AGENTS.md` revisado
-- skill/role afetado revisado
-- `README.md` atualizado
-- `CHANGELOG.md` atualizado
-- `docs/commands.md` atualizado se houve impacto operacional
-- ADR e diagramas atualizados quando necessário
+- documentação crítica sincronizada
+- pendências registradas
+- impacto operacional não ficou implícito

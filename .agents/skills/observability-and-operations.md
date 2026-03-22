@@ -1,51 +1,50 @@
 # Skill: Observability and Operations
 
-## Objetivo
+## Quando usar
 
-Consolidar as convenções operacionais e de observabilidade que já valem na foundation.
+Use esta skill ao alterar:
 
-## Observabilidade obrigatória
+- logging
+- correlation ID
+- healthcheck
+- runtime local
+- compose
+- CI
+- comandos operacionais
+
+## Contexto mínimo a carregar
+
+- `.agents/rules/20-coding.md`
+- `.agents/rules/40-documentation.md`
+- `.agents/rules/50-security.md`
+
+## Convenções obrigatórias
 
 - logs estruturados em JSON
-- correlation ID obrigatório na borda HTTP
-- mensagens objetivas, textuais e sem emojis
-- nenhum segredo em log
+- correlation ID preservado na borda HTTP
+- mensagens curtas, textuais e sem emoji
+- nenhum segredo em logs
+- preferir `make <target>` a comandos longos
 
-## Convenções de logging
+## Runtime local esperado
 
-Exemplos aceitos:
+- `make up` sobe `app` e `postgres`, quando esse for o setup oficial
+- `GET /health` responde `{"status":"ok"}`
+- banco está acessível ao bootstrap, conforme contrato atual do sistema
 
-```text
-INFO  api starting app_name=atlas-erp-core app_env=local app_port=8080
-INFO  http request completed method=GET path=/health status_code=200 correlation_id=abc123
-ERROR ping postgres failed correlation_id=abc123 err="timeout"
-```
+## Hurdles comuns
 
-## Runtime local
+### Docker indisponível
 
-- `make up` deve subir `app` e `postgres`
-- `GET /health` deve responder `{"status":"ok"}`
-- PostgreSQL deve estar acessível no bootstrap da aplicação
+- sintoma: compose ou `testcontainers-go` falha
+- ação: validar daemon/socket antes de mexer no código
 
-## Regras operacionais
+### Correlation ID ausente
 
-- Preferir `make <target>` a comandos longos
-- Tratar `docker-compose.yml`, `Dockerfile`, workflow de CI e `.env.example` como parte do runtime oficial
-- Alterações em logging, correlation ID, compose, CI ou runtime exigem atualização de README e `docs/commands.md`
+- sintoma: request sem rastreabilidade
+- ação: revisar middleware e enriquecimento de log
 
-## Common hurdles
+### Segredo em log
 
-### Docker daemon indisponível
-
-- Sintoma: `make up` ou `testcontainers-go` falham com `Cannot connect to the Docker daemon`
-- Solução: iniciar Docker Desktop ou garantir acesso ao socket do daemon
-
-### Falta de correlation ID
-
-- Sintoma: request não é rastreável entre logs
-- Solução: garantir middleware na borda HTTP e enrichment em logs
-
-### Vazamento de segredo em log
-
-- Sintoma: senha, token ou payload sensível aparece em saída estruturada
-- Solução: remover o campo e revisar política de logging antes do merge
+- sintoma: token, senha ou payload sensível apareceu
+- ação: remover imediatamente e revisar política de logging

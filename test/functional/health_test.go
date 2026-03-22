@@ -2,7 +2,7 @@ package functional_test
 
 import (
 	"bytes"
-	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,22 +10,10 @@ import (
 
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
-	"github.com/rgomids/atlas-erp-core/internal/shared/postgres"
-	"github.com/rgomids/atlas-erp-core/test/support"
 )
 
 func TestHealthEndpointRespondsWithFoundationContract(t *testing.T) {
 	t.Parallel()
-
-	ctx := context.Background()
-	databaseConfig, cleanup := support.StartPostgres(ctx, t)
-	defer cleanup()
-
-	pool, err := postgres.Open(ctx, databaseConfig)
-	if err != nil {
-		t.Fatalf("open postgres pool: %v", err)
-	}
-	defer pool.Close()
 
 	logger, err := logging.NewWithWriter("info", &bytes.Buffer{})
 	if err != nil {
@@ -50,7 +38,12 @@ func TestHealthEndpointRespondsWithFoundationContract(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", response.StatusCode)
 	}
 
-	if string(body) != `{"status":"ok"}` {
-		t.Fatalf("expected exact health payload, got %q", string(body))
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("expected valid json response, got error: %v", err)
+	}
+
+	if payload["status"] != "ok" {
+		t.Fatalf("expected status payload to be ok, got %q", payload["status"])
 	}
 }

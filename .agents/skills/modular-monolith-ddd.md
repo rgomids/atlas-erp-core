@@ -1,101 +1,45 @@
 # Skill: Modular Monolith + DDD
 
-## Objetivo
+## Quando usar
 
-Definir como o projeto deve evoluir do scaffold da Phase 0 para módulos de domínio reais, sem erosionar fronteiras internas.
+Use esta skill ao:
 
-## Princípios obrigatórios
+- criar ou evoluir bounded contexts
+- introduzir entidades, value objects e use cases
+- revisar fronteiras entre módulos
+- decidir entre contrato síncrono e evento interno
+- preparar expansão do `billing`
 
-1. O sistema é um **modular monolith**: um deploy, múltiplos módulos isolados.
-2. O domínio deve ser modelado com linguagem de negócio explícita.
-3. Dependências sempre apontam para dentro:
+## Contexto mínimo a carregar
 
-```text
-interface -> application -> domain
-```
+- `AGENTS.md`
+- `.agents/rules/10-architecture.md`
+- `.agents/rules/30-testing.md`
+- `.agents/rules/70-phase-governance.md`
 
-4. Um módulo não pode acessar implementação interna de outro módulo.
-5. Banco compartilhado fisicamente não significa acesso livre entre módulos.
+## Módulos de referência
 
-## Bounded contexts iniciais
+### Ativos
 
-### `customers`
+- `customers`
+- `invoices`
+- `payments`
 
-- Cadastro e ciclo de vida de clientes
-- Services esperados: `CreateCustomer`, `UpdateCustomerProfile`, `DeactivateCustomer`
-- Jobs esperados: `RebuildCustomerProjections`, `SyncCustomerReadModel`
-- Models esperados: `Customer`, `CustomerDocument`, `CustomerStatus`, `CustomerCreated`
+### Em scaffold
 
-### `billing`
+- `billing`
 
-- Cobrança, cálculo de valores e políticas de vencimento
-- Services esperados: `GenerateCharge`, `ApplyBillingPolicy`, `CloseBillingCycle`
-- Jobs esperados: `CloseOverdueCharges`, `RecalculateBillingCycle`
-- Models esperados: `Charge`, `BillingPolicy`, `BillingCycle`, `ChargeGenerated`
+## Guardrails
 
-### `invoices`
+- não cair em CRUD anêmico como padrão
+- não compartilhar internals entre módulos
+- não usar `internal/shared` para mascarar acoplamento
+- não introduzir integração externa real antes de contrato claro
+- preferir linguagem de domínio explícita
 
-- Emissão e consolidação de invoices
-- Services esperados: `GenerateInvoice`, `IssueInvoice`, `CancelInvoice`
-- Jobs esperados: `ReconcileInvoices`, `RetryInvoiceDispatch`
-- Models esperados: `Invoice`, `InvoiceLine`, `InvoiceStatus`, `InvoiceGenerated`
+## Critérios de saída
 
-### `payments`
-
-- Processamento e estorno de pagamentos
-- Services esperados: `ProcessPayment`, `ConfirmPayment`, `RefundPayment`
-- Jobs esperados: `RetryPaymentSettlement`, `ExpirePendingPayments`
-- Models esperados: `Payment`, `PaymentAttempt`, `PaymentStatus`, `PaymentProcessed`
-
-## Estrutura padrão de módulo
-
-```text
-internal/<module>/
-├── domain/
-├── application/
-│   ├── usecase/
-│   └── dto/
-├── infrastructure/
-│   ├── repository/
-│   ├── http/
-│   └── persistence/
-└── module.go
-```
-
-## Regras de dependência
-
-### Permitido
-
-- `infrastructure` depende de `application` e `domain`
-- `application` depende de `domain`
-- `domain` não depende de infraestrutura
-- módulos interagem por contratos explícitos ou eventos
-
-### Proibido
-
-- handler com regra de negócio
-- import direto de `infrastructure` de outro módulo
-- leitura/escrita em tabela de outro módulo sem contrato explícito
-- modelos compartilhados mutáveis entre domínios
-
-## Comunicação entre módulos
-
-### Preferência
-
-- eventos internos in-process
-
-### Exceção
-
-- chamada síncrona apenas via interface pública de borda
-
-### Eventos de referência
-
-- `InvoiceCreated`
-- `BillingRequested`
-- `PaymentApproved`
-- `PaymentFailed`
-- `InvoicePaid`
-
-## Regra de ouro
-
-> Se um módulo depender da implementação interna de outro módulo, a arquitetura está quebrada.
+- comportamento encapsulado no domínio
+- use cases orquestrando sem vazar regra
+- contrato entre módulos explícito
+- testes cobrindo invariantes e fluxos relevantes

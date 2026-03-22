@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rgomids/atlas-erp-core/internal/customers"
+	"github.com/rgomids/atlas-erp-core/internal/invoices"
+	"github.com/rgomids/atlas-erp-core/internal/payments"
 	"github.com/rgomids/atlas-erp-core/internal/shared/config"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
@@ -43,9 +46,19 @@ func run() error {
 	}
 	defer db.Close()
 
+	customerModule := customers.NewModule(db)
+	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker())
+	paymentModule := payments.NewModule(db, invoiceModule.PaymentPort())
+
 	server := &http.Server{
-		Addr:              cfg.App.Address(),
-		Handler:           httpapi.NewRouter(logger, cfg.App.CorrelationIDHeader),
+		Addr: cfg.App.Address(),
+		Handler: httpapi.NewRouter(
+			logger,
+			cfg.App.CorrelationIDHeader,
+			customerModule.Routes,
+			invoiceModule.Routes,
+			paymentModule.Routes,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

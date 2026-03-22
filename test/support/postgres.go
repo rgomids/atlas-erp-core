@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/testcontainers/testcontainers-go"
 	postgresmodule "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/rgomids/atlas-erp-core/internal/shared/config"
+	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 )
 
 func StartPostgres(ctx context.Context, t testing.TB) (config.DatabaseConfig, func()) {
@@ -31,7 +31,6 @@ func StartPostgres(ctx context.Context, t testing.TB) (config.DatabaseConfig, fu
 		postgresmodule.WithPassword("atlas"),
 		postgresmodule.BasicWaitStrategies(),
 		postgresmodule.WithSQLDriver("pgx"),
-		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections")),
 	)
 	if err != nil {
 		if dockerUnavailable(err) {
@@ -59,15 +58,56 @@ func StartPostgres(ctx context.Context, t testing.TB) (config.DatabaseConfig, fu
 		t.Fatalf("parse postgres port: %v", err)
 	}
 
-	return config.DatabaseConfig{
-			Host:     host,
-			Port:     parsedPort,
-			User:     "atlas",
-			Password: "atlas",
-			Name:     "atlas",
-		}, func() {
-			_ = container.Terminate(ctx)
+	databaseConfig := config.DatabaseConfig{
+		Host:     host,
+		Port:     parsedPort,
+		User:     "atlas",
+		Password: "atlas",
+		Name:     "atlas",
+	}
+
+	if err := waitUntilPostgresReady(ctx, databaseConfig); err != nil {
+		_ = container.Terminate(ctx)
+		t.Fatalf("wait for postgres readiness: %v", err)
+	}
+
+	return databaseConfig, func() {
+		_ = container.Terminate(ctx)
+	}
+}
+
+func waitUntilPostgresReady(ctx context.Context, databaseConfig config.DatabaseConfig) error {
+	const (
+		startupTimeout = 20 * time.Second
+		retryInterval  = 250 * time.Millisecond
+	)
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, startupTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		pool, err := sharedpostgres.Open(deadlineCtx, databaseConfig)
+		if err == nil {
+			pool.Close()
+			return nil
 		}
+
+		lastErr = err
+
+		select {
+		case <-deadlineCtx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("postgres did not become ready within %s: %w", startupTimeout, lastErr)
+			}
+
+			return fmt.Errorf("postgres did not become ready within %s", startupTimeout)
+		case <-ticker.C:
+		}
+	}
 }
 
 func dockerUnavailable(err error) bool {
