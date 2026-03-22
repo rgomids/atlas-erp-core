@@ -61,7 +61,7 @@ func (repository *PostgresRepository) Save(ctx context.Context, payment entities
 		payment.IdempotencyKey(),
 		payment.Status(),
 		payment.GatewayReference(),
-		payment.FailureCategory(),
+		nullableFailureCategory(payment.FailureCategory()),
 		payment.CreatedAt(),
 		payment.UpdatedAt(),
 	)
@@ -91,7 +91,7 @@ func (repository *PostgresRepository) Update(ctx context.Context, payment entiti
 		payment.ID(),
 		payment.Status(),
 		payment.GatewayReference(),
-		payment.FailureCategory(),
+		nullableFailureCategory(payment.FailureCategory()),
 		payment.UpdatedAt(),
 	)
 	if isUniqueViolation(err) {
@@ -122,7 +122,7 @@ func (repository *PostgresRepository) GetByID(ctx context.Context, paymentID str
 		idempotencyKey   string
 		status           string
 		gatewayReference string
-		failureCategory  string
+		failureCategory  *string
 		createdAt        time.Time
 		updatedAt        time.Time
 	)
@@ -137,7 +137,7 @@ func (repository *PostgresRepository) GetByID(ctx context.Context, paymentID str
 		return entities.Payment{}, fmt.Errorf("query payment by id: %w", err)
 	}
 
-	payment, err := entities.RehydratePayment(id, billingID, invoiceID, attemptNumber, idempotencyKey, status, gatewayReference, failureCategory, createdAt, updatedAt)
+	payment, err := entities.RehydratePayment(id, billingID, invoiceID, attemptNumber, idempotencyKey, status, gatewayReference, derefString(failureCategory), createdAt, updatedAt)
 	if err != nil {
 		return entities.Payment{}, fmt.Errorf("rehydrate payment: %w", err)
 	}
@@ -169,7 +169,7 @@ func (repository *PostgresRepository) ListByInvoiceID(ctx context.Context, invoi
 			idempotencyKey   string
 			status           string
 			gatewayReference string
-			failureCategory  string
+			failureCategory  *string
 			createdAt        time.Time
 			updatedAt        time.Time
 		)
@@ -178,7 +178,7 @@ func (repository *PostgresRepository) ListByInvoiceID(ctx context.Context, invoi
 			return nil, fmt.Errorf("scan payment row: %w", err)
 		}
 
-		payment, err := entities.RehydratePayment(id, billingID, scannedInvoiceID, attemptNumber, idempotencyKey, status, gatewayReference, failureCategory, createdAt, updatedAt)
+		payment, err := entities.RehydratePayment(id, billingID, scannedInvoiceID, attemptNumber, idempotencyKey, status, gatewayReference, derefString(failureCategory), createdAt, updatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("rehydrate payment row: %w", err)
 		}
@@ -209,7 +209,7 @@ func (repository *PostgresRepository) GetByBillingIDAndAttempt(ctx context.Conte
 		idempotencyKey   string
 		status           string
 		gatewayReference string
-		failureCategory  string
+		failureCategory  *string
 		createdAt        time.Time
 		updatedAt        time.Time
 	)
@@ -224,7 +224,7 @@ func (repository *PostgresRepository) GetByBillingIDAndAttempt(ctx context.Conte
 		return entities.Payment{}, fmt.Errorf("query payment by billing attempt: %w", err)
 	}
 
-	payment, err := entities.RehydratePayment(id, scannedBillingID, invoiceID, scannedAttempt, idempotencyKey, status, gatewayReference, failureCategory, createdAt, updatedAt)
+	payment, err := entities.RehydratePayment(id, scannedBillingID, invoiceID, scannedAttempt, idempotencyKey, status, gatewayReference, derefString(failureCategory), createdAt, updatedAt)
 	if err != nil {
 		return entities.Payment{}, fmt.Errorf("rehydrate payment by billing attempt: %w", err)
 	}
@@ -235,4 +235,20 @@ func (repository *PostgresRepository) GetByBillingIDAndAttempt(ctx context.Conte
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func nullableFailureCategory(value entities.FailureCategory) any {
+	if value == "" {
+		return nil
+	}
+
+	return string(value)
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
 }
