@@ -48,6 +48,10 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 	if cfg.Payments.GatewayTimeout != 2*time.Second {
 		t.Fatalf("expected default gateway timeout, got %s", cfg.Payments.GatewayTimeout)
 	}
+
+	if cfg.Observability.TraceEndpoint != "" {
+		t.Fatalf("expected empty default trace endpoint, got %q", cfg.Observability.TraceEndpoint)
+	}
 }
 
 func TestLoadFromEnvFailsWhenRequiredValueIsMissing(t *testing.T) {
@@ -152,5 +156,31 @@ func TestNewEnvLookupAppliesEnvSpecificOverlay(t *testing.T) {
 	timeout, ok := lookup("PAYMENT_GATEWAY_TIMEOUT_MS")
 	if !ok || timeout != "3500" {
 		t.Fatalf("expected PAYMENT_GATEWAY_TIMEOUT_MS from overlay, got %q", timeout)
+	}
+}
+
+func TestLoadFromEnvIncludesObservabilityTraceEndpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := loadFromEnv(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_PORT":                    "8080",
+			"DB_HOST":                     "localhost",
+			"DB_PORT":                     "5432",
+			"DB_USER":                     "atlas",
+			"DB_PASSWORD":                 "atlas",
+			"DB_NAME":                     "atlas",
+			"OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
+		}
+
+		value, ok := values[key]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.Observability.TraceEndpoint != "http://jaeger:4318" {
+		t.Fatalf("expected trace endpoint to be loaded, got %q", cfg.Observability.TraceEndpoint)
 	}
 }

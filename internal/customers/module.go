@@ -12,6 +12,7 @@ import (
 	customershttp "github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/http"
 	"github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/persistence"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type Module struct {
@@ -19,14 +20,15 @@ type Module struct {
 	checker ports.ExistenceChecker
 }
 
-func NewModule(pool *pgxpool.Pool, bus sharedevent.EventBus) Module {
+func NewModule(pool *pgxpool.Pool, bus sharedevent.EventBus, telemetry ...*observability.Runtime) Module {
 	repository := persistence.NewPostgresRepository(pool)
+	obs := observability.FromOptional(telemetry...)
 
 	return Module{
 		handler: customershttp.NewHandler(
-			usecases.NewCreateCustomer(repository, bus),
-			usecases.NewUpdateCustomer(repository),
-			usecases.NewDeactivateCustomer(repository),
+			usecases.NewCreateCustomer(repository, bus, obs),
+			usecases.NewUpdateCustomer(repository, obs),
+			usecases.NewDeactivateCustomer(repository, obs),
 		),
 		checker: existenceChecker{repository: repository},
 	}

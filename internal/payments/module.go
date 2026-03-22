@@ -15,6 +15,7 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/persistence"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 )
 
@@ -32,11 +33,13 @@ func NewModule(
 	bus sharedevent.EventBus,
 	gateway ports.PaymentGateway,
 	config ModuleConfig,
+	telemetry ...*observability.Runtime,
 ) Module {
 	repository := persistence.NewPostgresRepository(pool)
 	if gateway == nil {
 		gateway = integration.NewMockGateway()
 	}
+	obs := observability.FromOptional(telemetry...)
 
 	processBillingRequest := usecases.NewProcessBillingRequest(
 		repository,
@@ -44,6 +47,7 @@ func NewModule(
 		sharedpostgres.NewTxManager(pool),
 		bus,
 		config.GatewayTimeout,
+		obs,
 	)
 	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "payments", handlers.NewBillingRequested(processBillingRequest))
 
@@ -52,6 +56,7 @@ func NewModule(
 			usecases.NewProcessPayment(
 				billingPort,
 				processBillingRequest,
+				obs,
 			),
 		),
 	}

@@ -18,6 +18,7 @@ import (
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	"github.com/rgomids/atlas-erp-core/internal/shared/postgres"
 )
@@ -48,25 +49,43 @@ func run() error {
 		slog.String("request_id", ""),
 	)
 
-	db, err := postgres.Open(ctx, cfg.Database)
+	telemetry, err := observability.New(ctx, observability.Config{
+		ServiceName:   cfg.App.Name,
+		Environment:   cfg.App.Env,
+		TraceEndpoint: cfg.Observability.TraceEndpoint,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if shutdownErr := telemetry.Shutdown(shutdownCtx); shutdownErr != nil {
+			bootstrapLogger.Error("telemetry shutdown failed", slog.Any("err", shutdownErr))
+		}
+	}()
+
+	db, err := postgres.Open(ctx, cfg.Database, telemetry)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	eventBus := sharedevent.NewSyncBus(outbox.NewPostgresRecorder(db))
-	customerModule := customers.NewModule(db, eventBus)
-	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker(), eventBus)
-	billingModule := billing.NewModule(db, eventBus)
+	eventBus := sharedevent.NewSyncBusWithObservability(telemetry, outbox.NewPostgresRecorder(db))
+	customerModule := customers.NewModule(db, eventBus, telemetry)
+	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker(), eventBus, telemetry)
+	billingModule := billing.NewModule(db, eventBus, telemetry)
 	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, nil, payments.ModuleConfig{
 		GatewayTimeout: cfg.Payments.GatewayTimeout,
-	})
+	}, telemetry)
 
 	server := &http.Server{
 		Addr: cfg.App.Address(),
-		Handler: httpapi.NewRouter(
+		Handler: httpapi.NewRouterWithObservability(
 			logger,
 			cfg.App.CorrelationIDHeader,
+			telemetry,
 			customerModule.Routes,
 			invoiceModule.Routes,
 			paymentModule.Routes,

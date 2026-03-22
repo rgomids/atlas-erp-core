@@ -88,11 +88,11 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		errors.Is(err, entities.ErrInvoiceDueDateRequired):
 		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, customerentities.ErrCustomerNotFound):
-		httpapi.WriteError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
 	case errors.Is(err, customerentities.ErrCustomerInactive):
-		httpapi.WriteError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
 	case errors.Is(err, entities.ErrInvoiceNotFound):
-		httpapi.WriteError(writer, request, http.StatusNotFound, "invoice_not_found", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "invoice_not_found", err.Error())
 	default:
 		httpapi.WriteInternalError(writer, request, err)
 	}

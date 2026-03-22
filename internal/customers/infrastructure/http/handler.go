@@ -131,11 +131,11 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		errors.Is(err, valueobjects.ErrInvalidEmail):
 		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, entities.ErrCustomerAlreadyExists):
-		httpapi.WriteError(writer, request, http.StatusConflict, "customer_conflict", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusConflict, "customer_conflict", err.Error())
 	case errors.Is(err, entities.ErrCustomerNotFound):
-		httpapi.WriteError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
 	case errors.Is(err, entities.ErrCustomerInactive):
-		httpapi.WriteError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
 	default:
 		httpapi.WriteInternalError(writer, request, err)
 	}

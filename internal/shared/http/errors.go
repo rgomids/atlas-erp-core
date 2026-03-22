@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/rgomids/atlas-erp-core/internal/shared/correlation"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type ErrorResponse struct {
@@ -14,6 +15,18 @@ type ErrorResponse struct {
 }
 
 func WriteError(writer http.ResponseWriter, request *http.Request, statusCode int, errorCode, message string) {
+	writeErrorWithType(writer, request, statusCode, errorCode, message, "")
+}
+
+func WriteDomainError(writer http.ResponseWriter, request *http.Request, statusCode int, errorCode, message string) {
+	writeErrorWithType(writer, request, statusCode, errorCode, message, observability.ErrorTypeDomain)
+}
+
+func writeErrorWithType(writer http.ResponseWriter, request *http.Request, statusCode int, errorCode, message string, errorType string) {
+	if recorder, ok := writer.(interface{ SetErrorType(string) }); ok {
+		recorder.SetErrorType(errorType)
+	}
+
 	WriteJSON(writer, statusCode, ErrorResponse{
 		Error:     errorCode,
 		Message:   message,
@@ -22,14 +35,22 @@ func WriteError(writer http.ResponseWriter, request *http.Request, statusCode in
 }
 
 func WriteInputError(writer http.ResponseWriter, request *http.Request, message string) {
-	WriteError(writer, request, http.StatusBadRequest, "invalid_input", message)
+	writeErrorWithType(writer, request, http.StatusBadRequest, "invalid_input", message, observability.ErrorTypeValidation)
 }
 
 func WriteInternalError(writer http.ResponseWriter, request *http.Request, err error) {
 	LoggerFromContext(request.Context()).Error(
 		"unexpected request failure",
+		slog.String("error_type", observability.ErrorTypeInfrastructure),
 		slog.Any("err", err),
 	)
 
-	WriteError(writer, request, http.StatusInternalServerError, "internal_error", "internal server error")
+	writeErrorWithType(
+		writer,
+		request,
+		http.StatusInternalServerError,
+		"internal_error",
+		"internal server error",
+		observability.ErrorTypeInfrastructure,
+	)
 }

@@ -13,9 +13,10 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	Database DatabaseConfig
-	Payments PaymentsConfig
+	App           AppConfig
+	Database      DatabaseConfig
+	Payments      PaymentsConfig
+	Observability ObservabilityConfig
 }
 
 type AppConfig struct {
@@ -36,6 +37,10 @@ type DatabaseConfig struct {
 
 type PaymentsConfig struct {
 	GatewayTimeout time.Duration
+}
+
+type ObservabilityConfig struct {
+	TraceEndpoint string
 }
 
 type lookupFunc func(string) (string, bool)
@@ -102,6 +107,9 @@ func loadFromEnv(lookup lookupFunc) (Config, error) {
 		},
 		Payments: PaymentsConfig{
 			GatewayTimeout: time.Duration(gatewayTimeoutMS) * time.Millisecond,
+		},
+		Observability: ObservabilityConfig{
+			TraceEndpoint: optionalString(lookup, "OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		},
 	}
 

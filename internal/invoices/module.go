@@ -11,22 +11,24 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/persistence"
 	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type Module struct {
 	handler invoiceshttp.Handler
 }
 
-func NewModule(pool *pgxpool.Pool, customerExistenceChecker customerports.ExistenceChecker, bus sharedevent.EventBus) Module {
+func NewModule(pool *pgxpool.Pool, customerExistenceChecker customerports.ExistenceChecker, bus sharedevent.EventBus, telemetry ...*observability.Runtime) Module {
 	repository := persistence.NewPostgresRepository(pool)
-	applyPaymentApproved := usecases.NewApplyPaymentApproved(repository, bus)
+	obs := observability.FromOptional(telemetry...)
+	applyPaymentApproved := usecases.NewApplyPaymentApproved(repository, bus, obs)
 
 	sharedevent.Subscribe(bus, paymentevents.PaymentApproved{}.Name(), "invoices", handlers.NewPaymentApproved(applyPaymentApproved))
 
 	return Module{
 		handler: invoiceshttp.NewHandler(
-			usecases.NewCreateInvoice(repository, customerExistenceChecker, bus),
-			usecases.NewListCustomerInvoices(repository),
+			usecases.NewCreateInvoice(repository, customerExistenceChecker, bus, obs),
+			usecases.NewListCustomerInvoices(repository, obs),
 		),
 	}
 }
