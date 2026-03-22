@@ -2,51 +2,51 @@
 
 ## Fase corrente
 
-- Nome: Phase 4 - Resilience & Maturity
+- Nome: Phase 5 - Observability & Operations
 - Status: active
 
 ## Objetivo da fase
 
-Tornar o fluxo financeiro resiliente e previsivel com idempotencia por tentativa, retry controlado, timeout de gateway, outbox inicial e logs ricos em contexto.
+Tornar o fluxo principal rastreavel ponta a ponta com traces, metricas e logs operacionais uteis, mantendo baixo acoplamento e sem alterar regras de negocio.
 
 ## Escopo permitido
 
-- aplicar idempotencia real em `payments`
-- controlar retry em `billing` e `payments` com `attempt_number`
-- persistir falhas tecnicas como tentativa auditavel
-- preparar `outbox_events` sem worker assincrono
-- reforcar logs, config e testes de resiliencia
+- instrumentar HTTP, use cases, PostgreSQL, event bus e gateway com OpenTelemetry
+- expor metricas tecnicas relevantes em `/metrics`
+- enriquecer logs com `request_id`, `trace_id`, `span_id`, `event_name`, ids de dominio e `error_type`
+- documentar convencoes de observabilidade, troubleshooting e operacao local
+- subir Jaeger e Prometheus junto de `make up`
 
 ## Entregaveis esperados
 
-- duplicacao do mesmo evento financeiro nao gera nova execucao
-- retry manual reutiliza `billing` e avanca `attempt_number`
-- falha de gateway resulta em `PaymentFailed` persistido e invoice ainda `Pending`
-- `outbox_events` registra eventos emitidos
-- README, AGENTS, commands, diagrams, ADR e changelog atualizados para Phase 4
+- traces do fluxo `POST /invoices -> InvoiceCreated -> BillingRequested -> PaymentApproved|PaymentFailed`
+- metricas HTTP, de eventos, de banco e de gateway disponiveis em Prometheus
+- logs operacionais com contexto minimo consistente
+- stack local simples de observabilidade funcionando com Jaeger e Prometheus
+- README, AGENTS, commands, diagrams, ADR e changelog atualizados para Phase 5
 
 ## Criterios de conclusao
 
-- pagamentos nao duplicam por reprocessamento do mesmo evento
-- fluxo automatico e retry manual toleram timeout/falha tecnica do gateway
-- outbox inicial existe e esta coberto por validacao
-- documentacao critica reflete a arquitetura e a operacao da Phase 4
+- o fluxo principal pode ser rastreado ponta a ponta
+- metricas principais estao expostas e nomeadas de forma consistente
+- falhas de gateway e retries ficam visiveis em traces, metricas e logs
+- documentacao critica reflete a arquitetura e a operacao da Phase 5
 
 ## Restricoes
 
-- nao introduzir Kafka, SQS ou qualquer mensageria externa
-- nao ativar worker ou dispatch assincrono do outbox nesta fase
-- nao migrar para microservices
-- nao implementar backoff exponencial complexo ou scheduler dedicado
+- nao introduzir microservices
+- nao adicionar mensageria externa
+- nao alterar regras de negocio nem payloads de eventos
+- nao subir collector, Tempo ou Grafana sem necessidade real
 
 ## Riscos aceitos
 
-- `InvoiceCreated` continua sendo publicado apos persistencia local da invoice
-- o outbox ainda nao possui dispatcher assincrono
-- tracing e metricas de runtime aprofundadas ficam para a fase seguinte
+- Jaeger all-in-one e Prometheus existem apenas para desenvolvimento local
+- o outbox continua sincronico e sem dispatcher assincrono
+- sinais de logs do OpenTelemetry permanecem fora do escopo desta fase
 
 ## Proximos marcos
 
-- ativar processamento assincrono do outbox quando houver pressao real
-- aprofundar observabilidade com metricas e tracing
-- preparar contratos para consistencia eventual entre modulos
+- avaliar dashboards e alertas somente quando houver sinais reais de operacao continua
+- decidir sobre exportacao remota de traces e metricas por ambiente
+- revisar quando o outbox assincrono ou SPM fizer sentido operacional

@@ -2,29 +2,30 @@
 
 ## Objetivo
 
-Controlar evolucao por fase sem misturar endurecimento tecnico, comunicacao event-driven e decisoes ainda nao autorizadas.
+Controlar evolucao por fase sem misturar observabilidade operacional, mudancas de negocio e decisoes estruturais ainda nao autorizadas.
 
 ## Fase atual
 
-**Phase 4 - Resilience & Maturity**
+**Phase 5 - Observability & Operations**
 
 ## Escopo permitido nesta fase
 
-- endurecer idempotencia em fluxos financeiros
-- controlar retry manual e tecnico com `attempt_number`
-- isolar timeout e falhas de gateway sem quebrar o fluxo principal
-- preparar persistencia de eventos via `outbox_events`
-- reforcar logs de dominio, testes de resiliencia e documentacao da fase
+- instrumentar tracing e metricas com OpenTelemetry
+- expor `/metrics` e manter `GET /health`
+- enriquecer logs com `trace_id`, `span_id`, `event_name`, ids de dominio e `error_type`
+- padronizar categorias de erro para troubleshooting
+- adicionar stack local simples com Jaeger e Prometheus
+- reforcar testes e documentacao operacional da observabilidade
 
 ## Fora do escopo por padrao
 
 Sem decisao explicita adicional, nao iniciar como trabalho principal:
 
 - extracao de microservices
-- adocao de Redis como dependencia mandatoria
-- OpenTelemetry como runtime obrigatorio nesta fase
-- integracoes externas reais que ainda nao tenham contrato claro
-- mensageria externa, CQRS ou outbox assincrono como trabalho principal
+- Kafka, SQS, RabbitMQ ou qualquer mensageria externa
+- OpenTelemetry Collector, Tempo, Grafana ou stack mais complexa que o necessario
+- alteracao de regra de negocio, payloads ou contratos funcionais
+- CQRS, event sourcing ou outbox assincrono como trabalho principal
 - paralelizacao agressiva de agentes sem particao de dominio
 - automacao de autoevolucao de rules/skills sem revisao humana
 
@@ -52,4 +53,4 @@ Usar `.agents/templates/phase-status.md` para consolidar:
 
 ## Regra de decisao
 
-Quando uma mudanca parecer “grande demais” para a fase atual, registrar como proposta, ADR ou pendencia — nao empurrar silenciosamente para dentro do escopo corrente.
+Quando uma mudanca parecer “grande demais” para a fase atual, registrar como proposta, ADR ou pendencia. Nao empurrar silenciosamente para dentro do escopo corrente.

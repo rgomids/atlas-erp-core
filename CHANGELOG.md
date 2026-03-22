@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-03-22
+
+### Added
+
+- OpenTelemetry runtime in `internal/shared/observability` covering traces, metrics, propagators and `/metrics`.
+- Tracing for HTTP, application use cases, PostgreSQL queries, internal event publish/consume and payment gateway integration.
+- Technical metrics for HTTP, events, retries, PostgreSQL and gateway latency/failures.
+- Jaeger all-in-one and Prometheus in the local Docker Compose stack.
+- Unit, integration and functional observability coverage for trace propagation, route labeling, metrics exposure, log context and event bus instrumentation.
+- ADR documenting the Phase 5 observability decisions.
+
+### Changed
+
+- Project status moved from Phase 4 to Phase 5 - Observability & Operations.
+- Structured logs now include `trace_id`, `span_id`, `event_name`, `retry_count` and canonical `error_type` categories when applicable.
+- Router now accepts `traceparent` and `tracestate` while preserving `X-Correlation-ID` as the primary operational correlation contract.
+- PostgreSQL access now uses `pgx` query tracing with SQL sanitization to emit only operation and table metadata.
+- README, AGENTS, commands guide, diagrams and phase status now document the local observability stack and troubleshooting workflow.
+
+### Fixed
+
+- Internal HTTP failures now preserve `infrastructure_error` in request metrics and logs.
+- Gateway integration spans no longer risk inconsistent double-finalization on approved or declined paths.
+
 ## [0.5.0] - 2026-03-21
 
 ### Added

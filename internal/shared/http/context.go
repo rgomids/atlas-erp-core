@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rgomids/atlas-erp-core/internal/shared/correlation"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type loggerContextKey string
@@ -34,13 +35,35 @@ func bindLogger(base *slog.Logger) func(http.Handler) http.Handler {
 func LoggerFromContext(ctx context.Context) *slog.Logger {
 	logger, ok := ctx.Value(requestLoggerKey).(*slog.Logger)
 	if ok && logger != nil {
-		return logger
+		attrs := observability.TraceLogAttrs(ctx)
+		if len(attrs) == 0 {
+			return logger
+		}
+
+		arguments := make([]any, 0, len(attrs))
+		for _, attr := range attrs {
+			arguments = append(arguments, attr)
+		}
+
+		return logger.With(arguments...)
 	}
 
-	return slog.Default().With(
+	baseLogger := slog.Default().With(
 		slog.String("module", "shared"),
 		slog.String("request_id", correlation.ID(ctx)),
 	)
+
+	attrs := observability.TraceLogAttrs(ctx)
+	if len(attrs) == 0 {
+		return baseLogger
+	}
+
+	arguments := make([]any, 0, len(attrs))
+	for _, attr := range attrs {
+		arguments = append(arguments, attr)
+	}
+
+	return baseLogger.With(arguments...)
 }
 
 func moduleFromPath(path string) string {
@@ -52,6 +75,8 @@ func moduleFromPath(path string) string {
 	case strings.HasPrefix(path, "/customers"):
 		return "customers"
 	case strings.HasPrefix(path, "/health"):
+		return "shared"
+	case strings.HasPrefix(path, "/metrics"):
 		return "shared"
 	default:
 		return "shared"

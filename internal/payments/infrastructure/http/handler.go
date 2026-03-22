@@ -56,11 +56,11 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 	case errors.Is(err, entities.ErrInvalidInvoiceReference):
 		httpapi.WriteInputError(writer, request, err.Error())
 	case errors.Is(err, entities.ErrPaymentAlreadyExists):
-		httpapi.WriteError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
 	case errors.Is(err, billingentities.ErrBillingNotFound):
-		httpapi.WriteError(writer, request, http.StatusNotFound, "billing_not_found", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "billing_not_found", err.Error())
 	case errors.Is(err, billingentities.ErrBillingAlreadyApproved):
-		httpapi.WriteError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
+		httpapi.WriteDomainError(writer, request, http.StatusConflict, "payment_conflict", err.Error())
 	default:
 		httpapi.WriteInternalError(writer, request, err)
 	}

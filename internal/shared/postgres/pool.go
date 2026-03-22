@@ -12,10 +12,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rgomids/atlas-erp-core/internal/shared/config"
+	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
-func Open(ctx context.Context, cfg config.DatabaseConfig) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, cfg.ConnectionString())
+func Open(ctx context.Context, cfg config.DatabaseConfig, telemetry ...*observability.Runtime) (*pgxpool.Pool, error) {
+	poolConfig, err := pgxpool.ParseConfig(cfg.ConnectionString())
+	if err != nil {
+		return nil, fmt.Errorf("parse postgres pool config: %w", err)
+	}
+
+	if runtime := observability.FromOptional(telemetry...); runtime != nil {
+		poolConfig.ConnConfig.Tracer = runtime.QueryTracer()
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres pool: %w", err)
 	}

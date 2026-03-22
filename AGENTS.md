@@ -6,19 +6,20 @@
 
 ## Fase atual
 
-**Phase 4 - Resilience & Maturity**
+**Phase 5 - Observability & Operations**
 
 Estado de referencia desta fase:
 
 - foundation da Phase 0 continua valida
 - fluxo funcional ponta a ponta da Phase 1 continua ativo
 - endurecimento tecnico da Phase 2 continua valido
-- comunicacao entre modulos agora prioriza **eventos internos in-process**
-- observabilidade por request e por evento esta consolidada com `request_id`
+- comunicacao entre modulos continua priorizando **eventos internos in-process**
+- observabilidade agora inclui traces OpenTelemetry, metricas Prometheus e logs enriquecidos com `trace_id` e `span_id`
 - pagamentos e handlers financeiros operam com **idempotencia por tentativa**
 - retry manual e controlado usa `attempt_number`
 - timeout de gateway e falhas tecnicas passam a gerar tentativa auditavel em `Failed`
-- preparacao inicial de consistencia eventual existe via `outbox_events`
+- preparacao inicial de consistencia eventual continua via `outbox_events`
+- stack local de desenvolvimento sobe `app`, `postgres`, `jaeger` e `prometheus`
 - modulos ativos: `customers`, `invoices`, `billing`, `payments`
 
 O `README.md` deve sempre refletir a fase atual. Quando a fase mudar, atualizar tambem `.agents/templates/phase-status.md` ou o artefato de status adotado pelo repositorio.
@@ -36,7 +37,7 @@ Ele define como trabalhar no repositorio, quais artefatos carregar por demanda e
 - integracao entre camadas: **Ports and Adapters**
 - comunicacao entre modulos: **Internal Event-Driven Communication**
 - persistencia: **PostgreSQL** com ownership logico por modulo
-- observabilidade: logging JSON, `request_id`, `event`, `emitter_module`, `consumer_module`, ids de dominio e erro HTTP canonico
+- observabilidade: OpenTelemetry para tracing e metricas, `slog` para logs JSON, `request_id`, `trace_id`, `event_name`, ids de dominio e erro HTTP canonico
 - contrato de fluxo atual:
 
 ```text
@@ -55,12 +56,16 @@ POST /payments -> reprocessa billing existente apos PaymentFailed ou falha tecni
 - `chi` para roteamento HTTP
 - `log/slog` para logging estruturado
 - `godotenv` para bootstrap de `.env`
+- OpenTelemetry Go SDK para traces e metricas
+- `otelhttp` para instrumentacao HTTP
 - Event bus interno sincronico em `internal/shared/event`
 - Recorder tecnico de outbox em `internal/shared/outbox`
 - PostgreSQL
 - `pgx/v5` para acesso ao banco
 - `golang-migrate` para migrations
 - Docker + Docker Compose
+- Jaeger all-in-one para traces locais
+- Prometheus para metricas locais
 - `testcontainers-go` para testes com PostgreSQL real
 - GitHub Actions para CI
 
@@ -112,6 +117,7 @@ Carregue o minimo suficiente para executar com seguranca:
 | `LOG_LEVEL` | Nao | `info` | Nivel de log estruturado |
 | `CORRELATION_ID_HEADER` | Nao | `X-Correlation-ID` | Header usado para propagar `request_id` |
 | `PAYMENT_GATEWAY_TIMEOUT_MS` | Nao | `2000` | Timeout maximo do gateway de pagamento por tentativa |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Nao | vazio | Endpoint OTLP HTTP para exportacao de traces; vazio desabilita export remoto |
 
 ## Estrutura do diretorio de conteudo
 
@@ -136,6 +142,7 @@ Carregue o minimo suficiente para executar com seguranca:
 │   │   ├── event/
 │   │   ├── http/
 │   │   ├── logging/
+│   │   ├── observability/
 │   │   ├── outbox/
 │   │   └── postgres/
 │   ├── customers/
@@ -156,7 +163,7 @@ Carregue o minimo suficiente para executar com seguranca:
 
 ### Shared
 
-- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `postgres`, `event`, `outbox`
+- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `observability`, `postgres`, `event`, `outbox`
 - jobs: nenhum
 - models: apenas primitives tecnicas e utilitarios transversais estaveis
 
@@ -243,8 +250,11 @@ Carregue o minimo suficiente para executar com seguranca:
 - Idempotent Consumer Pattern
 - Transaction boundary local para fluxos financeiros
 - Request-scoped e event-scoped logging com `request_id`
+- OpenTelemetry Instrumentation Pattern
+- Prometheus Pull Metrics Pattern
 - Outbox Pattern preparado de forma inicial
 - Error mapping explicito entre dominio, aplicacao e HTTP
+- Observability conventions para spans, metricas e categorias de erro
 
 ## Common hurdles
 
@@ -272,6 +282,16 @@ Carregue o minimo suficiente para executar com seguranca:
 
 - sintoma: tentativa em `Failed` com `failure_category=gateway_timeout`
 - acao: revisar `PAYMENT_GATEWAY_TIMEOUT_MS`, adapter do gateway e a categoria persistida em `payments`
+
+### Trace ausente no Jaeger
+
+- sintoma: request executa, mas o trace nao aparece
+- acao: validar `OTEL_EXPORTER_OTLP_ENDPOINT`, servico `jaeger` no Compose e propagacao de `traceparent`
+
+### Metricas ausentes no Prometheus
+
+- sintoma: `atlas_erp_*` nao aparece em `/metrics` ou no Prometheus
+- acao: revisar `GET /metrics`, configuracao do `prometheus.yml` e startup do `prometheus`
 
 ### Duplicacao de evento financeiro
 
@@ -373,6 +393,7 @@ Regras complementares:
 - `make test-integration`
 - `make test-functional`
 - `make test`
+- `make up`
 - revisar `README.md`
 - revisar `CHANGELOG.md`
 - revisar `docs/commands.md`
