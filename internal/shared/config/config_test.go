@@ -45,6 +45,10 @@ func TestLoadFromEnvUsesDefaults(t *testing.T) {
 		t.Fatalf("expected default correlation header, got %q", cfg.App.CorrelationIDHeader)
 	}
 
+	if cfg.App.FaultProfile != FaultProfileNone {
+		t.Fatalf("expected default fault profile %q, got %q", FaultProfileNone, cfg.App.FaultProfile)
+	}
+
 	if cfg.Payments.GatewayTimeout != 2*time.Second {
 		t.Fatalf("expected default gateway timeout, got %s", cfg.Payments.GatewayTimeout)
 	}
@@ -182,5 +186,78 @@ func TestLoadFromEnvIncludesObservabilityTraceEndpoint(t *testing.T) {
 
 	if cfg.Observability.TraceEndpoint != "http://jaeger:4318" {
 		t.Fatalf("expected trace endpoint to be loaded, got %q", cfg.Observability.TraceEndpoint)
+	}
+}
+
+func TestLoadFromEnvIncludesFaultProfile(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := loadFromEnv(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_PORT":            "8080",
+			"APP_ENV":             "local",
+			"ATLAS_FAULT_PROFILE": string(FaultProfilePaymentTimeout),
+			"DB_HOST":             "localhost",
+			"DB_PORT":             "5432",
+			"DB_USER":             "atlas",
+			"DB_PASSWORD":         "atlas",
+			"DB_NAME":             "atlas",
+		}
+
+		value, ok := values[key]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatalf("expected config to load, got error: %v", err)
+	}
+
+	if cfg.App.FaultProfile != FaultProfilePaymentTimeout {
+		t.Fatalf("expected fault profile %q, got %q", FaultProfilePaymentTimeout, cfg.App.FaultProfile)
+	}
+}
+
+func TestLoadFromEnvRejectsUnknownFaultProfile(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFromEnv(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_PORT":            "8080",
+			"APP_ENV":             "local",
+			"ATLAS_FAULT_PROFILE": "broken",
+			"DB_HOST":             "localhost",
+			"DB_PORT":             "5432",
+			"DB_USER":             "atlas",
+			"DB_PASSWORD":         "atlas",
+			"DB_NAME":             "atlas",
+		}
+
+		value, ok := values[key]
+		return value, ok
+	})
+	if err == nil {
+		t.Fatal("expected unknown fault profile to fail")
+	}
+}
+
+func TestLoadFromEnvRejectsFaultInjectionInProduction(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFromEnv(func(key string) (string, bool) {
+		values := map[string]string{
+			"APP_PORT":            "8080",
+			"APP_ENV":             "production",
+			"ATLAS_FAULT_PROFILE": string(FaultProfileEventConsumerFailure),
+			"DB_HOST":             "localhost",
+			"DB_PORT":             "5432",
+			"DB_USER":             "atlas",
+			"DB_PASSWORD":         "atlas",
+			"DB_NAME":             "atlas",
+		}
+
+		value, ok := values[key]
+		return value, ok
+	})
+	if err == nil {
+		t.Fatal("expected non-none fault profile in production to fail")
 	}
 }

@@ -104,3 +104,79 @@ func TestSyncBusStopsOnFirstHandlerError(t *testing.T) {
 		t.Fatal("expected bus to stop after first handler error")
 	}
 }
+
+func TestSyncBusDuplicatesConfiguredFirstEventDelivery(t *testing.T) {
+	t.Parallel()
+
+	bus := NewSyncBusWithOptions(SyncBusOptions{
+		DuplicateFirstEventName: "BillingRequested",
+	})
+
+	deliveries := 0
+	Subscribe(bus, "BillingRequested", "payments", HandlerFunc(func(context.Context, Event) error {
+		deliveries++
+		return nil
+	}))
+
+	if err := Publish(context.Background(), bus, "billing", newTestEvent(context.Background(), "BillingRequested", "billing-123")); err != nil {
+		t.Fatalf("publish duplicated event: %v", err)
+	}
+
+	if deliveries != 2 {
+		t.Fatalf("expected duplicated first delivery count 2, got %d", deliveries)
+	}
+
+	if err := Publish(context.Background(), bus, "billing", newTestEvent(context.Background(), "BillingRequested", "billing-456")); err != nil {
+		t.Fatalf("publish second event: %v", err)
+	}
+
+	if deliveries != 3 {
+		t.Fatalf("expected later deliveries to remain single, got %d", deliveries)
+	}
+}
+
+func TestSyncBusInjectsFirstConsumerFailureForConfiguredModule(t *testing.T) {
+	t.Parallel()
+
+	bus := NewSyncBusWithOptions(SyncBusOptions{
+		FailFirstConsumerEventName: "BillingRequested",
+		FailFirstConsumerModule:    "payments",
+	})
+
+	paymentsExecuted := 0
+	billingExecuted := 0
+
+	Subscribe(bus, "BillingRequested", "payments", HandlerFunc(func(context.Context, Event) error {
+		paymentsExecuted++
+		return nil
+	}))
+	Subscribe(bus, "BillingRequested", "billing", HandlerFunc(func(context.Context, Event) error {
+		billingExecuted++
+		return nil
+	}))
+
+	err := Publish(context.Background(), bus, "billing", newTestEvent(context.Background(), "BillingRequested", "billing-123"))
+	if !errors.Is(err, ErrInjectedConsumerFailure) {
+		t.Fatalf("expected injected consumer failure, got %v", err)
+	}
+
+	if paymentsExecuted != 0 {
+		t.Fatalf("expected payments handler to be skipped on injected failure, got %d executions", paymentsExecuted)
+	}
+
+	if billingExecuted != 0 {
+		t.Fatalf("expected later handlers to stop after injected failure, got %d executions", billingExecuted)
+	}
+
+	if err := Publish(context.Background(), bus, "billing", newTestEvent(context.Background(), "BillingRequested", "billing-456")); err != nil {
+		t.Fatalf("publish after injected failure: %v", err)
+	}
+
+	if paymentsExecuted != 1 {
+		t.Fatalf("expected payments handler to recover on next delivery, got %d executions", paymentsExecuted)
+	}
+
+	if billingExecuted != 1 {
+		t.Fatalf("expected later handlers to run after recovery, got %d executions", billingExecuted)
+	}
+}

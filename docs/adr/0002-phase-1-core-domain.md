@@ -9,6 +9,9 @@ O projeto ja possuia foundation operacional, mas ainda sem fluxo funcional real 
 
 ## Decision
 
+- Confirmar **Modular Monolith** como estilo arquitetural base da aplicacao.
+- Confirmar **DDD** como abordagem de modelagem do core domain.
+- Confirmar **Clean Architecture** e **Ports and Adapters** como organizacao interna padrao dos modulos.
 - Implementar o fluxo minimo `Create Customer -> Create Invoice -> Process Payment -> Invoice Paid`.
 - Evoluir apenas `customers`, `invoices` e `payments`; `billing` permanece scaffold.
 - Usar contratos sincronos explicitos entre modulos na Phase 1:
@@ -23,3 +26,4 @@ O projeto ja possuia foundation operacional, mas ainda sem fluxo funcional real 
 - O sistema passa a ter um fluxo funcional real sem romper a simplicidade operacional do monolito.
 - A colaboracao entre modulos continua explicita e revisavel.
 - O projeto fica pronto para introduzir eventos internos em fase posterior sem reescrever o dominio entregue.
+- A decisao por monolito modular continua sendo o baseline contra o qual futuras extracoes devem ser justificadas.

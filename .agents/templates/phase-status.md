@@ -2,36 +2,36 @@
 
 ## Fase corrente
 
-- Nome: Phase 6 - Architectural Evolution & Distribution Readiness
+- Nome: Phase 7 - Portfolio Differentiation & Advanced Engineering
 - Status: active
 
 ## Objetivo da fase
 
-Preparar o sistema para futura distribuicao sem abandonar o monolito modular atual, consolidando contratos publicos, eventos padronizados e prontidao arquitetural.
+Transformar o projeto em uma vitrine tecnica clara, mensuravel e defendivel, preservando o monolito modular atual e adicionando evidencia objetiva de comportamento, falhas controladas e decisoes arquiteturais explicitas.
 
 ## Escopo permitido
 
-- explicitar contratos publicos entre `customers`, `invoices`, `billing` e `payments`
-- padronizar eventos internos com envelope e catalogo publico por modulo
-- evoluir `outbox_events` para refletir `pending`, `processed` e `failed`
-- reforcar fronteiras internas com validacao automatizada de imports
-- documentar estrategia de extracao futura e trade-offs de permanecer no monolito modular
+- manter contratos publicos, envelope de eventos e lifecycle do outbox consistentes com a implementacao
+- adicionar benchmark reproduzivel dos fluxos principais
+- adicionar perfis de falha controlados no runtime local
+- reforcar testes de duplicidade, timeout, retry e falha de consumo
+- documentar trade-offs, limitacoes, criterios de extracao e evidencias de engenharia
 
 ## Entregaveis esperados
 
-- contratos publicos por modulo em `internal/<module>/public`
-- catalogo de eventos publicos e envelope padronizado com metadados minimos
-- `outbox_events` com campos de aggregate, correlation e lifecycle de processamento
-- documentacao de arquitetura e ADR atualizadas para Phase 6
-- README, AGENTS, commands, diagrams, ADR e changelog atualizados para Phase 6
+- benchmark package em `test/benchmark` com export opcional para `docs/benchmarks/`
+- perfis de falha controlados via `ATLAS_FAULT_PROFILE`
+- cobertura adicional para duplicidade, timeout, retry e falha de outbox/consumo
+- ADRs, diagrams, trade-offs e failure scenarios sincronizados com o codigo real
+- README, AGENTS, commands, diagrams, ADR e changelog atualizados para Phase 7
 
 ## Criterios de conclusao
 
-- o fluxo principal continua funcionando apos a segregacao de contratos
-- eventos internos possuem envelope padronizado e catalogo publico
-- o outbox reflete `pending`, `processed` e `failed` no dispatch sincronico atual
-- existe documentacao objetiva sobre candidatos a extracao e bloqueadores atuais
-- documentacao critica reflete a arquitetura e a operacao da Phase 6
+- existe benchmark local reproduzivel com latencia media, p95, throughput e taxa de erro
+- existem cenarios de falha controlados e documentados sem alterar contratos HTTP
+- os testes explicam as garantias de idempotencia, retry e previsibilidade operacional
+- README e docs apresentam arquitetura, trade-offs, limites conhecidos e evidencias tecnicas
+- documentacao critica reflete a arquitetura e a operacao da Phase 7
 
 ## Restricoes
 
@@ -43,11 +43,12 @@ Preparar o sistema para futura distribuicao sem abandonar o monolito modular atu
 ## Riscos aceitos
 
 - o monolito continua em um unico deployable
-- o outbox continua sincronico e sem dispatcher assíncrono real
-- contratos publicos ainda nao equivalem a contratos de rede
+- o outbox continua sincronico e sem dispatcher assincrono real
+- benchmarks continuam locais e dependentes do ambiente de execucao
+- falhas controladas servem a avaliacao local e nao sao modo operacional padrao
 
 ## Proximos marcos
 
-- decidir quando `payments` ou `billing` justificarem extracao operacional independente
+- revisar periodicamente se `payments` ou `billing` ja possuem pressao suficiente para extracao
 - avaliar dispatcher assincrono apenas quando backlog, throughput ou integracoes externas exigirem
-- revisitar ownership de banco e bootstrap quando houver razao real para multiplos deployables
+- transformar benchmark local em historico comparavel quando houver regressao real a acompanhar

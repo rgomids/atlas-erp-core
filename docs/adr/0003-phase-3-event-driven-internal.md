@@ -16,6 +16,8 @@ Adotar um event bus interno sincronico e in-process como mecanismo padrao de com
 
 As decisoes concretas desta fase sao:
 
+- adotar **eventos internos in-process** como mecanismo primario de comunicacao entre modulos do fluxo financeiro
+- manter **sem broker externo** nesta fase para preservar simplicidade operacional e testes deterministas
 - introduzir `internal/shared/event` com `SyncBus`
 - publicar `InvoiceCreated` apos persistir a invoice
 - fazer `billing` consumir `InvoiceCreated` e publicar `BillingRequested`
@@ -32,6 +34,7 @@ As decisoes concretas desta fase sao:
 - ativa `billing` como parte real do dominio
 - melhora a rastreabilidade do fluxo com logs estruturados por evento
 - prepara o sistema para evolucoes futuras como outbox ou mensageria externa
+- explicita o contrato semantico dos eventos antes de qualquer futura externalizacao
 
 ### Negative
 

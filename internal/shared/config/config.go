@@ -25,6 +25,7 @@ type AppConfig struct {
 	Port                int
 	LogLevel            string
 	CorrelationIDHeader string
+	FaultProfile        FaultProfile
 }
 
 type DatabaseConfig struct {
@@ -90,6 +91,11 @@ func loadFromEnv(lookup lookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
+	faultProfile, err := ParseFaultProfile(optionalString(lookup, "ATLAS_FAULT_PROFILE", string(FaultProfileNone)))
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		App: AppConfig{
 			Name:                optionalString(lookup, "APP_NAME", "atlas-erp-core"),
@@ -97,6 +103,7 @@ func loadFromEnv(lookup lookupFunc) (Config, error) {
 			Port:                port,
 			LogLevel:            optionalString(lookup, "LOG_LEVEL", "info"),
 			CorrelationIDHeader: optionalString(lookup, "CORRELATION_ID_HEADER", "X-Correlation-ID"),
+			FaultProfile:        faultProfile,
 		},
 		Database: DatabaseConfig{
 			Host:     dbHost,
@@ -135,6 +142,10 @@ func (cfg Config) validate() error {
 
 	if strings.TrimSpace(cfg.App.CorrelationIDHeader) == "" {
 		return errors.New("CORRELATION_ID_HEADER cannot be blank")
+	}
+
+	if cfg.App.Env == "production" && cfg.App.FaultProfile != FaultProfileNone {
+		return errors.New("ATLAS_FAULT_PROFILE must be none when APP_ENV=production")
 	}
 
 	if cfg.Payments.GatewayTimeout <= 0 {

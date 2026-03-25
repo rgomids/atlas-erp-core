@@ -6,7 +6,7 @@
 
 ## Fase atual
 
-**Phase 6 - Architectural Evolution & Distribution Readiness**
+**Phase 7 - Portfolio Differentiation & Advanced Engineering**
 
 Estado de referencia desta fase:
 
@@ -21,6 +21,9 @@ Estado de referencia desta fase:
 - retry manual e controlado usa `attempt_number`
 - timeout de gateway e falhas tecnicas passam a gerar tentativa auditavel em `Failed`
 - `outbox_events` agora reflete `pending`, `processed` e `failed` no dispatch sincronico atual
+- o runtime local agora pode ativar falhas controladas via `ATLAS_FAULT_PROFILE`
+- o repositorio agora possui benchmark reproduzivel em `test/benchmark`
+- README, ADRs, trade-offs e diagramas passam a servir tambem como evidencia de portfolio
 - stack local de desenvolvimento sobe `app`, `postgres`, `jaeger` e `prometheus`
 - modulos ativos: `customers`, `invoices`, `billing`, `payments`
 
@@ -118,6 +121,7 @@ Carregue o minimo suficiente para executar com seguranca:
 | `APP_ENV` | Nao | `local` | Ambiente atual |
 | `LOG_LEVEL` | Nao | `info` | Nivel de log estruturado |
 | `CORRELATION_ID_HEADER` | Nao | `X-Correlation-ID` | Header usado para propagar `request_id` |
+| `ATLAS_FAULT_PROFILE` | Nao | `none` | Perfil de falha controlada para avaliacao local; em `production` deve permanecer `none` |
 | `PAYMENT_GATEWAY_TIMEOUT_MS` | Nao | `2000` | Timeout maximo do gateway de pagamento por tentativa |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Nao | vazio | Endpoint OTLP HTTP para exportacao de traces; vazio desabilita export remoto |
 
@@ -136,6 +140,7 @@ Carregue o minimo suficiente para executar com seguranca:
 ├── docs/
 │   ├── architecture/
 │   ├── adr/
+│   ├── benchmarks/
 │   ├── commands.md
 │   └── diagrams/
 ├── internal/
@@ -147,7 +152,8 @@ Carregue o minimo suficiente para executar com seguranca:
 │   │   ├── logging/
 │   │   ├── observability/
 │   │   ├── outbox/
-│   │   └── postgres/
+│   │   ├── postgres/
+│   │   └── runtimefaults/
 │   ├── customers/
 │   ├── invoices/
 │   ├── billing/
@@ -166,7 +172,7 @@ Carregue o minimo suficiente para executar com seguranca:
 
 ### Shared
 
-- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `observability`, `postgres`, `event`, `outbox`
+- servicos/capacidades: `config`, `http`, `correlation`, `logging`, `observability`, `postgres`, `event`, `outbox`, `runtimefaults`
 - jobs: nenhum
 - models: apenas primitives tecnicas e utilitarios transversais estaveis
 
@@ -390,13 +396,13 @@ Regras complementares:
 
 ## Checklist pos-implementacao
 
-- `rtk make fmt`
-- `rtk make lint`
-- `rtk make test-unit`
-- `rtk make test-integration`
-- `rtk make test-functional`
-- `rtk make test`
-- `rtk make up`
+- `rtk gofmt -w <arquivos>`
+- `rtk go vet ./...`
+- `rtk go test ./internal/...`
+- `rtk go test ./test/integration/...`
+- `rtk go test ./test/functional/...`
+- `rtk go test ./...`
+- `rtk docker compose up --build -d`
 - revisar `README.md`
 - revisar `CHANGELOG.md`
 - revisar `docs/commands.md`

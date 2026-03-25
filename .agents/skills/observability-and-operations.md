@@ -24,11 +24,11 @@ Use esta skill ao alterar:
 - correlation ID preservado na borda HTTP
 - mensagens curtas, textuais e sem emoji
 - nenhum segredo em logs
-- preferir `rtk make <target>` a comandos longos
+- preferir comandos diretos com `rtk` e explicitar env vars relevantes quando o runtime depender delas
 
 ## Runtime local esperado
 
-- `rtk make up` sobe `app` e `postgres`, quando esse for o setup oficial
+- `rtk docker compose up --build -d` sobe a stack local oficial quando esse for o setup adotado
 - `GET /health` responde `{"status":"ok"}`
 - banco está acessível ao bootstrap, conforme contrato atual do sistema
 

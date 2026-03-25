@@ -23,6 +23,7 @@ Adotar as seguintes decisoes na Phase 6:
 4. o dispatch continua sincronico e in-process, mas o outbox passa a refletir `pending`, `processed` e `failed`
 5. um teste arquitetural bloqueante passa a impedir imports cruzados fora de `public`
 6. `payments` vira o principal candidato a extracao futura, seguido por `billing`
+7. a extracao futura so deve ocorrer quando houver pressao operacional, ownership ou throughput real, nao apenas desejo de distribuicao
 
 ## Consequences
 
@@ -32,6 +33,7 @@ Adotar as seguintes decisoes na Phase 6:
 - eventos ficam prontos para futura externalizacao sem mudar o contrato semantico
 - o outbox deixa de ser apenas trilha passiva e passa a refletir o lifecycle do dispatch atual
 - a base ganha protecao automatica contra erosao arquitetural
+- a decisao de extrair modulo passa a depender de criterio observavel e documentado
 
 ### Negative
 
@@ -44,3 +46,4 @@ Adotar as seguintes decisoes na Phase 6:
 - esta ADR nao introduz microservices, broker externo, worker distribuido ou CQRS
 - `processed` e `failed` descrevem apenas o dispatch sincronico atual, nao entrega distribuida
 - a decisao de extrair um modulo continua condicionada a pressao operacional real
+- a Phase 7 usa esta ADR como base para benchmark, trade-offs e limitacoes conhecidas, sem alterar o modelo de deploy atual

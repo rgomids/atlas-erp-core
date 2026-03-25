@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -51,20 +52,45 @@ func (handler HandlerFunc) Handle(ctx context.Context, event Event) error {
 	return handler(ctx, event)
 }
 
+type SyncBusOptions struct {
+	Recorder                   Recorder
+	Observability              *observability.Runtime
+	Now                        func() time.Time
+	DuplicateFirstEventName    string
+	FailFirstConsumerEventName string
+	FailFirstConsumerModule    string
+}
+
 type SyncBus struct {
 	mu            sync.RWMutex
 	handlers      map[string][]EventHandler
 	recorder      Recorder
 	now           func() time.Time
 	observability *observability.Runtime
+	faultMu       sync.Mutex
+
+	duplicateFirstEventName    string
+	duplicateTriggered         bool
+	failFirstConsumerEventName string
+	failFirstConsumerModule    string
+	failFirstConsumerTriggered bool
 }
 
 type emitterModuleContextKey string
 
 const emitterModuleKey emitterModuleContextKey = "event_emitter_module"
 
+var ErrInjectedConsumerFailure = errors.New("simulated event consumer failure")
+
 func NewSyncBus(recorders ...Recorder) *SyncBus {
-	return NewSyncBusWithObservability(nil, recorders...)
+	var recorder Recorder
+	if len(recorders) > 0 {
+		recorder = recorders[0]
+	}
+
+	return NewSyncBusWithOptions(SyncBusOptions{
+		Recorder: recorder,
+	})
 }
 
 func NewSyncBusWithObservability(telemetry *observability.Runtime, recorders ...Recorder) *SyncBus {
@@ -73,11 +99,26 @@ func NewSyncBusWithObservability(telemetry *observability.Runtime, recorders ...
 		recorder = recorders[0]
 	}
 
+	return NewSyncBusWithOptions(SyncBusOptions{
+		Recorder:      recorder,
+		Observability: telemetry,
+	})
+}
+
+func NewSyncBusWithOptions(options SyncBusOptions) *SyncBus {
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
+
 	return &SyncBus{
-		handlers:      map[string][]EventHandler{},
-		recorder:      recorder,
-		now:           time.Now,
-		observability: telemetry,
+		handlers:                   map[string][]EventHandler{},
+		recorder:                   options.Recorder,
+		now:                        now,
+		observability:              options.Observability,
+		duplicateFirstEventName:    options.DuplicateFirstEventName,
+		failFirstConsumerEventName: options.FailFirstConsumerEventName,
+		failFirstConsumerModule:    options.FailFirstConsumerModule,
 	}
 }
 
@@ -117,6 +158,33 @@ func (bus *SyncBus) Publish(ctx context.Context, domainEvent Event) error {
 	logger.Info("📣 event published", eventArgs...)
 	telemetry.RecordEventPublished(publishContext, domainEvent.Name(), emitterModule)
 
+	if err := bus.dispatch(publishContext, domainEvent, handlers, logger, telemetry); err != nil {
+		return bus.handleDispatchFailure(ctx, domainEvent, logger, telemetry, err)
+	}
+
+	if bus.shouldDuplicate(domainEvent.Name()) {
+		logger.Info("event delivery duplicated", eventArgs...)
+		if err := bus.dispatch(publishContext, domainEvent, handlers, logger, telemetry); err != nil {
+			return bus.handleDispatchFailure(ctx, domainEvent, logger, telemetry, err)
+		}
+	}
+
+	if err := bus.markProcessed(ctx, domainEvent); err != nil {
+		logger.Error("🧾 event mark processed failed", append([]any{slog.Any("err", err)}, eventLogArgs(domainEvent)...)...)
+		telemetry.RecordSpanError(publishSpan, err, observability.ErrorTypeInfrastructure)
+		return err
+	}
+
+	return nil
+}
+
+func (bus *SyncBus) dispatch(
+	publishContext context.Context,
+	domainEvent Event,
+	handlers []EventHandler,
+	logger *slog.Logger,
+	telemetry *observability.Runtime,
+) error {
 	for _, handler := range handlers {
 		consumerModule := handlerModule(handler)
 		handlerLogger := logger.With(
@@ -133,40 +201,51 @@ func (bus *SyncBus) Publish(ctx context.Context, domainEvent Event) error {
 		handlerLogger.Info("📥 event handling", eventLogArgs(domainEvent)...)
 		telemetry.RecordEventConsumed(handlerContext, domainEvent.Name(), consumerModule)
 
-		if err := handler.Handle(handlerContext, domainEvent); err != nil {
-			if recordErr := bus.markFailed(ctx, domainEvent, err); recordErr != nil {
-				handlerLogger.Error(
-					"🧾 event outbox failed status update failed",
-					append([]any{slog.Any("err", recordErr)}, eventLogArgs(domainEvent)...)...,
-				)
-			}
+		handleErr := error(nil)
+		if bus.shouldFailConsumer(domainEvent.Name(), consumerModule) {
+			handleErr = ErrInjectedConsumerFailure
+		} else {
+			handleErr = handler.Handle(handlerContext, domainEvent)
+		}
 
+		if handleErr != nil {
 			handlerLogger.Error(
 				"💥 event handler failed",
 				append(
 					[]any{
-						slog.Any("err", err),
+						slog.Any("err", handleErr),
 						slog.String("error_type", observability.ErrorTypeInfrastructure),
 					},
 					eventLogArgs(domainEvent)...,
 				)...,
 			)
 			telemetry.RecordEventHandlerFailure(handlerContext, domainEvent.Name(), consumerModule, observability.ErrorTypeInfrastructure)
-			telemetry.CompleteSpan(handlerSpan, err, observability.ErrorTypeInfrastructure)
-			return err
+			telemetry.CompleteSpan(handlerSpan, handleErr, observability.ErrorTypeInfrastructure)
+			return handleErr
 		}
 
 		handlerLogger.Info("✅ event handled", eventLogArgs(domainEvent)...)
 		telemetry.CompleteSpan(handlerSpan, nil, "")
 	}
 
-	if err := bus.markProcessed(ctx, domainEvent); err != nil {
-		logger.Error("🧾 event mark processed failed", append([]any{slog.Any("err", err)}, eventLogArgs(domainEvent)...)...)
-		telemetry.RecordSpanError(publishSpan, err, observability.ErrorTypeInfrastructure)
-		return err
+	return nil
+}
+
+func (bus *SyncBus) handleDispatchFailure(
+	ctx context.Context,
+	domainEvent Event,
+	logger *slog.Logger,
+	telemetry *observability.Runtime,
+	dispatchErr error,
+) error {
+	if recordErr := bus.markFailed(ctx, domainEvent, dispatchErr); recordErr != nil {
+		logger.Error(
+			"🧾 event outbox failed status update failed",
+			append([]any{slog.Any("err", recordErr)}, eventLogArgs(domainEvent)...)...,
+		)
 	}
 
-	return nil
+	return dispatchErr
 }
 
 func (bus *SyncBus) Subscribe(eventName string, handler EventHandler) {
@@ -259,6 +338,42 @@ func (bus *SyncBus) markFailed(ctx context.Context, domainEvent Event, failure e
 	}
 
 	return bus.recorder.MarkFailed(ctx, domainEvent.EventMetadata().EventID, bus.now().UTC(), failure.Error())
+}
+
+func (bus *SyncBus) shouldDuplicate(eventName string) bool {
+	if bus.duplicateFirstEventName == "" || bus.duplicateFirstEventName != eventName {
+		return false
+	}
+
+	bus.faultMu.Lock()
+	defer bus.faultMu.Unlock()
+
+	if bus.duplicateTriggered {
+		return false
+	}
+
+	bus.duplicateTriggered = true
+	return true
+}
+
+func (bus *SyncBus) shouldFailConsumer(eventName string, consumerModule string) bool {
+	if bus.failFirstConsumerEventName == "" || bus.failFirstConsumerModule == "" {
+		return false
+	}
+
+	if bus.failFirstConsumerEventName != eventName || bus.failFirstConsumerModule != consumerModule {
+		return false
+	}
+
+	bus.faultMu.Lock()
+	defer bus.faultMu.Unlock()
+
+	if bus.failFirstConsumerTriggered {
+		return false
+	}
+
+	bus.failFirstConsumerTriggered = true
+	return true
 }
 
 func eventLogArgs(domainEvent Event) []any {

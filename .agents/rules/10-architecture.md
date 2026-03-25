@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Preservar a coerencia do modular monolith e evitar erosao arquitetural na evolucao da Phase 6.
+Preservar a coerencia do modular monolith e evitar erosao arquitetural na evolucao da Phase 7.
 
 ## Arquitetura adotada
 

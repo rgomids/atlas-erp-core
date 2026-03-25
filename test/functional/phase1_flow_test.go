@@ -18,11 +18,13 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/payments"
 	paymentports "github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
+	"github.com/rgomids/atlas-erp-core/internal/shared/config"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
 	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
+	"github.com/rgomids/atlas-erp-core/internal/shared/runtimefaults"
 	"github.com/rgomids/atlas-erp-core/test/support"
 )
 
@@ -390,6 +392,156 @@ func TestPhase4HTTPManualRetryReturnsFailedPayloadOnTechnicalFailure(t *testing.
 	}
 }
 
+func TestPhase7HTTPPaymentTimeoutProfileKeepsInvoicePending(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	server := newFunctionalServerWithProfile(t, pool, config.FaultProfilePaymentTimeout, &bytes.Buffer{}, 5*time.Millisecond)
+	defer server.Close()
+
+	customerResponse := postJSON(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSON(t, server.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`)
+	if invoiceResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("expected invoice creation status 201, got %d", invoiceResponse.StatusCode)
+	}
+
+	listResponse, err := server.Client().Get(server.URL + "/customers/" + customer.ID + "/invoices")
+	if err != nil {
+		t.Fatalf("list invoices after profile timeout: %v", err)
+	}
+	defer listResponse.Body.Close()
+
+	var payload struct {
+		Items []struct {
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode invoices payload: %v", err)
+	}
+
+	if payload.Items[0].Status != "Pending" {
+		t.Fatalf("expected pending invoice after payment_timeout profile, got %q", payload.Items[0].Status)
+	}
+}
+
+func TestPhase7HTTPRepeatedPaymentsRetryStopsAfterSuccess(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	server := newFunctionalServerWithProfile(t, pool, config.FaultProfilePaymentFlakyFirst, &bytes.Buffer{}, time.Second)
+	defer server.Close()
+
+	customerResponse := postJSON(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`)
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	invoiceResponse := postJSON(t, server.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`)
+	var invoice struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, invoiceResponse, &invoice)
+
+	firstRetry := postJSON(t, server.URL+"/payments", `{"invoice_id":"`+invoice.ID+`"}`)
+	if firstRetry.StatusCode != http.StatusCreated {
+		t.Fatalf("expected first retry status 201, got %d", firstRetry.StatusCode)
+	}
+
+	var approved struct {
+		Status        string `json:"status"`
+		AttemptNumber int    `json:"attempt_number"`
+	}
+	decodeResponse(t, firstRetry, &approved)
+
+	if approved.Status != "Approved" || approved.AttemptNumber != 2 {
+		t.Fatalf("expected approved second attempt, got status=%q attempt=%d", approved.Status, approved.AttemptNumber)
+	}
+
+	secondRetry := postJSON(t, server.URL+"/payments", `{"invoice_id":"`+invoice.ID+`"}`)
+	defer secondRetry.Body.Close()
+
+	if secondRetry.StatusCode != http.StatusConflict {
+		t.Fatalf("expected second retry conflict status 409, got %d", secondRetry.StatusCode)
+	}
+
+	var conflict httpapi.ErrorResponse
+	if err := json.NewDecoder(secondRetry.Body).Decode(&conflict); err != nil {
+		t.Fatalf("decode conflict payload: %v", err)
+	}
+
+	if conflict.Error != "payment_conflict" {
+		t.Fatalf("expected payment_conflict error, got %q", conflict.Error)
+	}
+}
+
+func TestPhase7HTTPLogsInjectedConsumerFailure(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres pool: %v", err)
+	}
+	defer pool.Close()
+
+	logBuffer := &bytes.Buffer{}
+	server := newFunctionalServerWithProfile(t, pool, config.FaultProfileEventConsumerFailure, logBuffer, time.Second)
+	defer server.Close()
+
+	customerResponse := postJSONWithRequestID(t, server.URL+"/customers", `{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}`, "req-functional-phase7-001")
+	var customer struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, customerResponse, &customer)
+
+	response := postJSONWithRequestID(t, server.URL+"/invoices", `{"customer_id":"`+customer.ID+`","amount_cents":1599,"due_date":"2026-03-25"}`, "req-functional-phase7-001")
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected internal error status 500, got %d", response.StatusCode)
+	}
+
+	logOutput := logBuffer.String()
+	for _, fragment := range []string{
+		`"event":"BillingRequested"`,
+		`"consumer_module":"payments"`,
+		`"error_type":"infrastructure_error"`,
+		`"request_id":"req-functional-phase7-001"`,
+	} {
+		if !strings.Contains(logOutput, fragment) {
+			t.Fatalf("expected log output to contain %s, got %s", fragment, logOutput)
+		}
+	}
+}
+
 func newFunctionalServer(t *testing.T, pool *pgxpool.Pool, gateway paymentports.PaymentGateway, logWriter *bytes.Buffer) *httptest.Server {
 	return newFunctionalServerWithTimeout(t, pool, gateway, logWriter, time.Second)
 }
@@ -406,6 +558,39 @@ func newFunctionalServerWithTimeout(t *testing.T, pool *pgxpool.Pool, gateway pa
 	customerModule := customers.NewModule(pool, eventBus)
 	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
 	billingModule := billing.NewModule(pool, eventBus)
+	paymentModule := payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway, payments.ModuleConfig{
+		GatewayTimeout: timeout,
+	})
+
+	return httptest.NewServer(httpapi.NewRouter(
+		logger,
+		"X-Correlation-ID",
+		customerModule.Routes,
+		invoiceModule.Routes,
+		paymentModule.Routes,
+	))
+}
+
+func newFunctionalServerWithProfile(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	profile config.FaultProfile,
+	logWriter *bytes.Buffer,
+	timeout time.Duration,
+) *httptest.Server {
+	t.Helper()
+
+	logger, err := logging.NewWithWriter("info", logWriter)
+	if err != nil {
+		t.Fatalf("create logger: %v", err)
+	}
+
+	recorder := runtimefaults.DecorateRecorder(profile, outbox.NewPostgresRecorder(pool))
+	eventBus := sharedevent.NewSyncBusWithOptions(runtimefaults.EventBusOptions(profile, nil, recorder))
+	customerModule := customers.NewModule(pool, eventBus)
+	invoiceModule := invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	gateway := runtimefaults.DecorateGateway(profile, timeout, integration.NewMockGateway())
 	paymentModule := payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway, payments.ModuleConfig{
 		GatewayTimeout: timeout,
 	})

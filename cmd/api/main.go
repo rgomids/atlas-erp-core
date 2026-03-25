@@ -14,6 +14,7 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
+	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
 	"github.com/rgomids/atlas-erp-core/internal/shared/config"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	"github.com/rgomids/atlas-erp-core/internal/shared/postgres"
+	"github.com/rgomids/atlas-erp-core/internal/shared/runtimefaults"
 )
 
 func main() {
@@ -72,11 +74,19 @@ func run() error {
 	}
 	defer db.Close()
 
-	eventBus := sharedevent.NewSyncBusWithObservability(telemetry, outbox.NewPostgresRecorder(db))
+	recorder := runtimefaults.DecorateRecorder(cfg.App.FaultProfile, outbox.NewPostgresRecorder(db))
+	eventBus := sharedevent.NewSyncBusWithOptions(
+		runtimefaults.EventBusOptions(cfg.App.FaultProfile, telemetry, recorder),
+	)
+	gateway := runtimefaults.DecorateGateway(
+		cfg.App.FaultProfile,
+		cfg.Payments.GatewayTimeout,
+		integration.NewMockGateway(),
+	)
 	customerModule := customers.NewModule(db, eventBus, telemetry)
 	invoiceModule := invoices.NewModule(db, customerModule.ExistenceChecker(), eventBus, telemetry)
 	billingModule := billing.NewModule(db, eventBus, telemetry)
-	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, nil, payments.ModuleConfig{
+	paymentModule := payments.NewModule(db, billingModule.PaymentPort(), eventBus, gateway, payments.ModuleConfig{
 		GatewayTimeout: cfg.Payments.GatewayTimeout,
 	}, telemetry)
 
@@ -98,6 +108,7 @@ func run() error {
 		slog.String("app_name", cfg.App.Name),
 		slog.String("app_env", cfg.App.Env),
 		slog.Int("app_port", cfg.App.Port),
+		slog.String("fault_profile", string(cfg.App.FaultProfile)),
 	)
 
 	errCh := make(chan error, 1)
