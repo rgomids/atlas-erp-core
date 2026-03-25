@@ -12,9 +12,9 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/dto"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/mappers"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
@@ -183,17 +183,23 @@ func (usecase ProcessBillingRequest) Execute(ctx context.Context, input ProcessB
 			}
 			usecase.observability.CompleteSpan(gatewaySpan, err, observability.ErrorTypeIntegration)
 
-			return sharedevent.Publish(txContext, usecase.bus, "payments", paymentevents.PaymentFailed{
-				PaymentID:        payment.ID(),
-				BillingID:        payment.BillingID(),
-				InvoiceID:        payment.InvoiceID(),
-				CustomerID:       input.CustomerID,
-				AttemptNumber:    payment.AttemptNumber(),
-				IdempotencyKey:   payment.IdempotencyKey(),
-				FailureCategory:  string(payment.FailureCategory()),
-				GatewayReference: payment.GatewayReference(),
-				FailedAt:         payment.UpdatedAt(),
-			})
+			return sharedevent.Publish(
+				txContext,
+				usecase.bus,
+				"payments",
+				paymentevents.NewPaymentFailed(
+					txContext,
+					payment.ID(),
+					payment.BillingID(),
+					payment.InvoiceID(),
+					input.CustomerID,
+					payment.AttemptNumber(),
+					payment.IdempotencyKey(),
+					string(payment.FailureCategory()),
+					payment.GatewayReference(),
+					payment.UpdatedAt(),
+				),
+			)
 		}
 
 		if result.Status == string(entities.StatusApproved) {
@@ -211,30 +217,42 @@ func (usecase ProcessBillingRequest) Execute(ctx context.Context, input ProcessB
 		}
 
 		if payment.Status() == entities.StatusApproved {
-			return sharedevent.Publish(txContext, usecase.bus, "payments", paymentevents.PaymentApproved{
-				PaymentID:        payment.ID(),
-				BillingID:        payment.BillingID(),
-				InvoiceID:        payment.InvoiceID(),
-				CustomerID:       input.CustomerID,
-				AttemptNumber:    payment.AttemptNumber(),
-				IdempotencyKey:   payment.IdempotencyKey(),
-				GatewayReference: payment.GatewayReference(),
-				ApprovedAt:       payment.UpdatedAt(),
-			})
+			return sharedevent.Publish(
+				txContext,
+				usecase.bus,
+				"payments",
+				paymentevents.NewPaymentApproved(
+					txContext,
+					payment.ID(),
+					payment.BillingID(),
+					payment.InvoiceID(),
+					input.CustomerID,
+					payment.AttemptNumber(),
+					payment.IdempotencyKey(),
+					payment.GatewayReference(),
+					payment.UpdatedAt(),
+				),
+			)
 		}
 
 		errorType = observability.ErrorTypeIntegration
-		return sharedevent.Publish(txContext, usecase.bus, "payments", paymentevents.PaymentFailed{
-			PaymentID:        payment.ID(),
-			BillingID:        payment.BillingID(),
-			InvoiceID:        payment.InvoiceID(),
-			CustomerID:       input.CustomerID,
-			AttemptNumber:    payment.AttemptNumber(),
-			IdempotencyKey:   payment.IdempotencyKey(),
-			FailureCategory:  string(payment.FailureCategory()),
-			GatewayReference: payment.GatewayReference(),
-			FailedAt:         payment.UpdatedAt(),
-		})
+		return sharedevent.Publish(
+			txContext,
+			usecase.bus,
+			"payments",
+			paymentevents.NewPaymentFailed(
+				txContext,
+				payment.ID(),
+				payment.BillingID(),
+				payment.InvoiceID(),
+				input.CustomerID,
+				payment.AttemptNumber(),
+				payment.IdempotencyKey(),
+				string(payment.FailureCategory()),
+				payment.GatewayReference(),
+				payment.UpdatedAt(),
+			),
+		)
 	})
 	if err != nil {
 		return dto.Payment{}, err

@@ -40,10 +40,10 @@ Todo bug corrigido deve ganhar um teste que falha antes e passa depois.
 
 Escolher o menor conjunto de validação que ainda seja honesto com o risco:
 
-- `make test-unit`
-- `make test-integration`
-- `make test-functional`
-- `make test`
+- `rtk make test-unit`
+- `rtk make test-integration`
+- `rtk make test-functional`
+- `rtk make test`
 
 Quando algum teste não puder ser executado, registrar claramente:
 

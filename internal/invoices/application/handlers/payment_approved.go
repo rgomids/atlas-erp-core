@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rgomids/atlas-erp-core/internal/invoices/application/usecases"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 

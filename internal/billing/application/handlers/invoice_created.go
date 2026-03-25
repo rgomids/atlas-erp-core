@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rgomids/atlas-erp-core/internal/billing/application/usecases"
-	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -24,10 +24,10 @@ func (handler InvoiceCreated) Handle(ctx context.Context, event sharedevent.Even
 	}
 
 	_, err := handler.createBilling.Execute(ctx, usecases.CreateBillingFromInvoiceInput{
-		InvoiceID:   domainEvent.InvoiceID,
-		CustomerID:  domainEvent.CustomerID,
-		AmountCents: domainEvent.AmountCents,
-		DueDate:     domainEvent.DueDate,
+		InvoiceID:   domainEvent.Payload.InvoiceID,
+		CustomerID:  domainEvent.Payload.CustomerID,
+		AmountCents: domainEvent.Payload.AmountCents,
+		DueDate:     domainEvent.Payload.DueDate,
 	})
 	return err
 }

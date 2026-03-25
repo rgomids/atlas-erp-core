@@ -11,8 +11,8 @@ import (
 
 	"github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
-	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/repositories"
+	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
@@ -96,14 +96,21 @@ func (usecase CreateBillingFromInvoice) Execute(ctx context.Context, input Creat
 
 	span.SetAttributes(attribute.String("atlas.billing_id", billing.ID()))
 
-	if err := sharedevent.Publish(ctx, usecase.bus, "billing", billingevents.BillingRequested{
-		BillingID:     billing.ID(),
-		InvoiceID:     billing.InvoiceID(),
-		CustomerID:    billing.CustomerID(),
-		AmountCents:   billing.AmountCents(),
-		DueDate:       billing.DueDate(),
-		AttemptNumber: billing.AttemptNumber(),
-	}); err != nil {
+	if err := sharedevent.Publish(
+		ctx,
+		usecase.bus,
+		"billing",
+		billingevents.NewBillingRequested(
+			ctx,
+			billing.ID(),
+			billing.InvoiceID(),
+			billing.CustomerID(),
+			billing.AmountCents(),
+			billing.DueDate(),
+			billing.AttemptNumber(),
+			billing.UpdatedAt(),
+		),
+	); err != nil {
 		errorType = observability.ErrorTypeInfrastructure
 		return ports.BillingSnapshot{}, err
 	}

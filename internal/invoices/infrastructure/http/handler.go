@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
+	customerpublic "github.com/rgomids/atlas-erp-core/internal/customers/public"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/application/usecases"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
@@ -87,9 +87,9 @@ func (handler Handler) writeError(writer http.ResponseWriter, request *http.Requ
 		errors.Is(err, entities.ErrInvoiceAmountMustBePositive),
 		errors.Is(err, entities.ErrInvoiceDueDateRequired):
 		httpapi.WriteInputError(writer, request, err.Error())
-	case errors.Is(err, customerentities.ErrCustomerNotFound):
+	case errors.Is(err, customerpublic.ErrCustomerNotFound):
 		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "customer_not_found", err.Error())
-	case errors.Is(err, customerentities.ErrCustomerInactive):
+	case errors.Is(err, customerpublic.ErrCustomerInactive):
 		httpapi.WriteDomainError(writer, request, http.StatusConflict, "customer_inactive", err.Error())
 	case errors.Is(err, entities.ErrInvoiceNotFound):
 		httpapi.WriteDomainError(writer, request, http.StatusNotFound, "invoice_not_found", err.Error())

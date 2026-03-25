@@ -1,6 +1,6 @@
 # Command Reference
 
-Este arquivo centraliza os principais comandos operacionais do projeto e deve ser atualizado sempre que setup, observabilidade ou fluxo recorrente mudarem.
+Este arquivo centraliza os principais comandos operacionais do projeto na Phase 6.
 
 ## Configuracao por ambiente
 
@@ -12,29 +12,29 @@ Este arquivo centraliza os principais comandos operacionais do projeto e deve se
 ## Setup e runtime
 
 ```bash
-make setup
-make up
-make down
-make run
-make build
+rtk make setup
+rtk make up
+rtk make down
+rtk make run
+rtk make build
 ```
 
 ## Qualidade
 
 ```bash
-make fmt
-make lint
-make test-unit
-make test-integration
-make test-functional
-make test
+rtk make fmt
+rtk make lint
+rtk make test-unit
+rtk make test-integration
+rtk make test-functional
+rtk make test
 ```
 
 ## Banco e migrations
 
 ```bash
-make migrate-up
-make migrate-down
+rtk make migrate-up
+rtk make migrate-down
 ```
 
 ## Endpoints operacionais
@@ -42,13 +42,13 @@ make migrate-down
 ### Healthcheck
 
 ```bash
-curl http://localhost:8080/health
+rtk curl http://localhost:8080/health
 ```
 
 ### Metricas Prometheus
 
 ```bash
-curl http://localhost:8080/metrics
+rtk curl http://localhost:8080/metrics
 ```
 
 ### Traces no Jaeger
@@ -65,7 +65,7 @@ curl http://localhost:8080/metrics
 ### 1. Criar cliente
 
 ```bash
-curl -X POST http://localhost:8080/customers \
+rtk curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-001' \
   -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
@@ -74,7 +74,7 @@ curl -X POST http://localhost:8080/customers \
 ### 2. Atualizar cliente
 
 ```bash
-curl -X PUT http://localhost:8080/customers/<customer-id> \
+rtk curl -X PUT http://localhost:8080/customers/<customer-id> \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-002' \
   -d '{"name":"Atlas Updated","email":"billing@atlas.io"}'
@@ -83,14 +83,14 @@ curl -X PUT http://localhost:8080/customers/<customer-id> \
 ### 3. Inativar cliente
 
 ```bash
-curl -X PATCH http://localhost:8080/customers/<customer-id>/inactive \
+rtk curl -X PATCH http://localhost:8080/customers/<customer-id>/inactive \
   -H 'X-Correlation-ID: demo-req-003'
 ```
 
 ### 4. Criar invoice e disparar o fluxo automatico
 
 ```bash
-curl -X POST http://localhost:8080/invoices \
+rtk curl -X POST http://localhost:8080/invoices \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-004' \
   -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
@@ -99,14 +99,14 @@ curl -X POST http://localhost:8080/invoices \
 ### 5. Listar invoices do cliente
 
 ```bash
-curl http://localhost:8080/customers/<customer-id>/invoices \
+rtk curl http://localhost:8080/customers/<customer-id>/invoices \
   -H 'X-Correlation-ID: demo-req-005'
 ```
 
 ### 6. Retry manual de pagamento apos falha
 
 ```bash
-curl -X POST http://localhost:8080/payments \
+rtk curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-006' \
   -d '{"invoice_id":"<invoice-id>"}'
@@ -127,10 +127,17 @@ Resposta possivel em falha tecnica do gateway:
 O contrato de `X-Correlation-ID` continua igual. Para tracing distribuido local, tambem e possivel enviar `traceparent`:
 
 ```bash
-curl http://localhost:8080/customers/<customer-id>/invoices \
+rtk curl http://localhost:8080/customers/<customer-id>/invoices \
   -H 'X-Correlation-ID: demo-req-007' \
   -H 'traceparent: 00-11111111111111111111111111111111-2222222222222222-01'
 ```
+
+## Contratos publicos e eventos
+
+- contratos inter-modulo ficam apenas em `internal/<module>/public`
+- eventos publicos ficam em `internal/<module>/public/events`
+- `outbox_events` persiste envelope com `metadata` e `payload`
+- status do outbox no dispatch sincronico atual: `pending`, `processed`, `failed`
 
 ## Sinais principais para troubleshooting
 
@@ -166,7 +173,7 @@ curl http://localhost:8080/customers/<customer-id>/invoices \
 ### Exemplo de erro de validacao
 
 ```bash
-curl -X POST http://localhost:8080/customers \
+rtk curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-008' \
   -d '{"name":"Atlas Co","email":"team@atlas.io"}'

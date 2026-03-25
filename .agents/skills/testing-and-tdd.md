@@ -43,7 +43,7 @@ Use esta skill em qualquer mudança que altere comportamento, corrija bug ou adi
 
 Escolher o menor conjunto honesto entre:
 
-- `make test-unit`
-- `make test-integration`
-- `make test-functional`
-- `make test`
+- `rtk make test-unit`
+- `rtk make test-integration`
+- `rtk make test-functional`
+- `rtk make test`

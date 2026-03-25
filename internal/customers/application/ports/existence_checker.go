@@ -1,7 +1,5 @@
 package ports
 
-import "context"
+import customerpublic "github.com/rgomids/atlas-erp-core/internal/customers/public"
 
-type ExistenceChecker interface {
-	ExistsActiveCustomer(ctx context.Context, customerID string) error
-}
+type ExistenceChecker = customerpublic.ExistenceChecker

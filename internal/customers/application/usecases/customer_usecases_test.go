@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
-	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/valueobjects"
+	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -223,7 +223,7 @@ func TestCreateCustomerPublishesCustomerCreatedEvent(t *testing.T) {
 	bus := sharedevent.NewSyncBus()
 	var createdEvents []customerevents.CustomerCreated
 
-	sharedevent.Subscribe(bus, customerevents.CustomerCreated{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, customerevents.EventNameCustomerCreated, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		createdEvents = append(createdEvents, event.(customerevents.CustomerCreated))
 		return nil
 	}))
@@ -244,7 +244,11 @@ func TestCreateCustomerPublishesCustomerCreatedEvent(t *testing.T) {
 		t.Fatalf("expected 1 customer created event, got %d", len(createdEvents))
 	}
 
-	if createdEvents[0].CustomerID != customer.ID {
-		t.Fatalf("expected event customer id %q, got %q", customer.ID, createdEvents[0].CustomerID)
+	if createdEvents[0].Payload.CustomerID != customer.ID {
+		t.Fatalf("expected event customer id %q, got %q", customer.ID, createdEvents[0].Payload.CustomerID)
+	}
+
+	if createdEvents[0].EventMetadata().AggregateID != customer.ID {
+		t.Fatalf("expected aggregate id %q, got %q", customer.ID, createdEvents[0].EventMetadata().AggregateID)
 	}
 }

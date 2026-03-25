@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
+	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/public/events"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
@@ -24,12 +24,12 @@ func (handler BillingRequested) Handle(ctx context.Context, event sharedevent.Ev
 	}
 
 	_, err := handler.processBillingRequest.Execute(ctx, usecases.ProcessBillingRequestInput{
-		BillingID:     domainEvent.BillingID,
-		InvoiceID:     domainEvent.InvoiceID,
-		CustomerID:    domainEvent.CustomerID,
-		AmountCents:   domainEvent.AmountCents,
-		DueDate:       domainEvent.DueDate,
-		AttemptNumber: domainEvent.AttemptNumber,
+		BillingID:     domainEvent.Payload.BillingID,
+		InvoiceID:     domainEvent.Payload.InvoiceID,
+		CustomerID:    domainEvent.Payload.CustomerID,
+		AmountCents:   domainEvent.Payload.AmountCents,
+		DueDate:       domainEvent.Payload.DueDate,
+		AttemptNumber: domainEvent.Payload.AttemptNumber,
 	})
 	return err
 }

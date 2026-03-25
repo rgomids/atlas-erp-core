@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
+	billingports "github.com/rgomids/atlas-erp-core/internal/billing/public"
 	paymentports "github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/repositories"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -156,7 +156,7 @@ func TestProcessBillingRequestApprovesAndPublishesEvent(t *testing.T) {
 	bus := sharedevent.NewSyncBus()
 	var approvedEvents []paymentevents.PaymentApproved
 
-	sharedevent.Subscribe(bus, paymentevents.PaymentApproved{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, paymentevents.EventNamePaymentApproved, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		approvedEvents = append(approvedEvents, event.(paymentevents.PaymentApproved))
 		return nil
 	}))
@@ -195,7 +195,7 @@ func TestProcessBillingRequestApprovesAndPublishesEvent(t *testing.T) {
 		t.Fatalf("expected 1 approved event, got %d", len(approvedEvents))
 	}
 
-	if approvedEvents[0].IdempotencyKey == "" {
+	if approvedEvents[0].Payload.IdempotencyKey == "" {
 		t.Fatal("expected approved event to carry idempotency key")
 	}
 }
@@ -304,7 +304,7 @@ func TestProcessBillingRequestPersistsGatewayFailureAndPublishesEvent(t *testing
 	bus := sharedevent.NewSyncBus()
 	var failedEvents []paymentevents.PaymentFailed
 
-	sharedevent.Subscribe(bus, paymentevents.PaymentFailed{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, paymentevents.EventNamePaymentFailed, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		failedEvents = append(failedEvents, event.(paymentevents.PaymentFailed))
 		return nil
 	}))

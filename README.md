@@ -5,21 +5,23 @@ Atlas ERP Core e um ERP backend em Go modelado como modular monolith, com DDD, C
 ## Project Links
 
 - Notion: [Atlas ERP Core](https://www.notion.so/mrgomides/Atlas-ERP-Core-32ae01f2262680aea1a1dd408f0001d9?source=copy_link)
+- Architecture Readiness: [docs/architecture/distribution-readiness.md](docs/architecture/distribution-readiness.md)
+- Diagrams: [docs/diagrams/architecture.md](docs/diagrams/architecture.md)
 
 ## Project Status
 
-Current Phase: **Phase 5 - Observability & Operations**
+Current Phase: **Phase 6 - Architectural Evolution & Distribution Readiness**
 
-## Phase 5 Delivery
+## Phase 6 Delivery
 
-Esta fase torna o fluxo principal rastreavel e mais operavel sem alterar regras de negocio:
+Esta fase consolida fronteiras internas e prepara uma futura distribuicao sem abandonar a simplicidade operacional atual:
 
-- OpenTelemetry instrumenta HTTP, use cases, PostgreSQL, event bus e gateway
-- `GET /metrics` expoe metricas tecnicas com Prometheus format
-- logs JSON continuam em `slog`, agora com `trace_id`, `span_id`, `event_name`, `error_type` e ids de dominio
-- `X-Correlation-ID` continua como correlacao operacional principal e `traceparent` passa a ser aceito na borda HTTP
-- `make up` sobe `app`, `postgres`, `jaeger` e `prometheus`
-- retries, falhas de gateway e handlers com erro agora aparecem de forma consistente em traces, metricas e logs
+- contratos publicos entre modulos agora vivem em `internal/<module>/public`
+- eventos internos usam envelope padronizado com `event_id`, `event_name`, `occurred_at`, `aggregate_id`, `correlation_id` e `payload`
+- `outbox_events` registra append, `processed` e `failed` no dispatch sincronico atual
+- o fluxo principal continua observavel com OpenTelemetry, Jaeger, Prometheus e logs JSON em `slog`
+- `payments` e `billing` passam a ter documentacao explicita como candidatos mais provaveis a extracao futura
+- documentacao arquitetural adicional agora cobre mapa de dependencias, catalogo de eventos, contratos publicos e criterios para distribuir
 
 O fluxo principal continua:
 
@@ -37,8 +39,20 @@ O caminho de compatibilidade continua:
 - Comunicacao entre modulos: event bus interno sincronico
 - Runtime atual: um unico processo HTTP em Go
 - Persistencia: PostgreSQL
-- Resiliencia herdada da Phase 4: idempotencia por tentativa, retry controlado, timeout configuravel de gateway e outbox inicial
-- Observabilidade da Phase 5: OpenTelemetry para traces e metricas, `slog` para logs estruturados, Jaeger e Prometheus para inspeccao local
+- Contratos entre modulos: `internal/<module>/public`
+- Eventos internos: envelope padronizado por modulo, com catalogo publico e payloads estaveis
+- Outbox: append + status `pending`, `processed` e `failed` no fluxo sincronico atual
+- Resiliencia herdada da Phase 4: idempotencia por tentativa, retry controlado e timeout configuravel de gateway
+- Observabilidade herdada da Phase 5: OpenTelemetry para traces e metricas, `slog` para logs estruturados, Jaeger e Prometheus para inspeccao local
+
+## Public Module Contracts
+
+| Module | Public contracts |
+| --- | --- |
+| `customers` | `ExistenceChecker`, `ErrCustomerNotFound`, `ErrCustomerInactive`, `public/events` |
+| `invoices` | `public/events` |
+| `billing` | `PaymentCompatibilityPort`, `BillingSnapshot`, `ErrBillingNotFound`, `ErrBillingAlreadyApproved`, `public/events` |
+| `payments` | `public/events` |
 
 ## Implemented Modules
 
@@ -72,14 +86,29 @@ O caminho de compatibilidade continua:
 
 ## Internal Event Catalog
 
-| Event | Producer | Consumers |
-| --- | --- | --- |
-| `CustomerCreated` | `customers` | none |
-| `InvoiceCreated` | `invoices` | `billing` |
-| `BillingRequested` | `billing` | `payments` |
-| `PaymentApproved` | `payments` | `billing`, `invoices` |
-| `PaymentFailed` | `payments` | `billing` |
-| `InvoicePaid` | `invoices` | none |
+Todos os eventos internos usam o mesmo contrato:
+
+```json
+{
+  "metadata": {
+    "event_id": "uuid",
+    "event_name": "InvoiceCreated",
+    "occurred_at": "2026-03-25T10:00:00Z",
+    "aggregate_id": "uuid",
+    "correlation_id": "req-123"
+  },
+  "payload": {}
+}
+```
+
+| Event | Producer | Consumers | Public package |
+| --- | --- | --- | --- |
+| `CustomerCreated` | `customers` | none | `internal/customers/public/events` |
+| `InvoiceCreated` | `invoices` | `billing` | `internal/invoices/public/events` |
+| `BillingRequested` | `billing` | `payments` | `internal/billing/public/events` |
+| `PaymentApproved` | `payments` | `billing`, `invoices` | `internal/payments/public/events` |
+| `PaymentFailed` | `payments` | `billing` | `internal/payments/public/events` |
+| `InvoicePaid` | `invoices` | none | `internal/invoices/public/events` |
 
 ## Public HTTP Endpoints
 
@@ -126,6 +155,7 @@ O caminho de compatibilidade continua:
 │   ├── api/
 │   └── migrate/
 ├── docs/
+│   ├── architecture/
 │   ├── adr/
 │   ├── commands.md
 │   └── diagrams/
@@ -162,8 +192,8 @@ O caminho de compatibilidade continua:
 - `log/slog` for structured logging
 - OpenTelemetry Go SDK for traces and metrics
 - `otelhttp` for HTTP instrumentation
-- Internal synchronous event bus
-- Outbox event recorder stored in PostgreSQL
+- Internal synchronous event bus with module-owned public event contracts
+- Outbox event recorder stored in PostgreSQL with lifecycle status updates
 - PostgreSQL
 - `pgx/v5` for database access and query tracing
 - `golang-migrate` for migrations
@@ -200,13 +230,13 @@ Prerequisites:
 1. Copy the environment file:
 
 ```bash
-make setup
+rtk make setup
 ```
 
 2. Start the local stack:
 
 ```bash
-make up
+rtk make up
 ```
 
 Isso sobe:
@@ -219,37 +249,37 @@ Isso sobe:
 3. Run migrations:
 
 ```bash
-make migrate-up
+rtk make migrate-up
 ```
 
 4. Validate health and metrics:
 
 ```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/metrics
+rtk curl http://localhost:8080/health
+rtk curl http://localhost:8080/metrics
 ```
 
 5. Execute the automatic event-driven flow:
 
 ```bash
-curl -X POST http://localhost:8080/customers \
+rtk curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-001' \
   -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
 
-curl -X POST http://localhost:8080/invoices \
+rtk curl -X POST http://localhost:8080/invoices \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-002' \
   -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
 
-curl http://localhost:8080/customers/<customer-id>/invoices \
+rtk curl http://localhost:8080/customers/<customer-id>/invoices \
   -H 'X-Correlation-ID: demo-req-003'
 ```
 
 6. Retry a failed payment manually when needed:
 
 ```bash
-curl -X POST http://localhost:8080/payments \
+rtk curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-req-004' \
   -d '{"invoice_id":"<invoice-id>"}'
@@ -258,14 +288,13 @@ curl -X POST http://localhost:8080/payments \
 7. If you run the API outside Compose and still want traces exported, set:
 
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-make run
+rtk env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 make run
 ```
 
 8. Stop the stack:
 
 ```bash
-make down
+rtk make down
 ```
 
 ## Tracing And Metrics
@@ -306,6 +335,9 @@ Sempre:
 
 - `module`
 - `request_id`
+- `event_id`
+- `aggregate_id`
+- `correlation_id`
 
 Quando aplicavel:
 
@@ -360,19 +392,19 @@ Quando aplicavel:
 Main commands are documented in [docs/commands.md](docs/commands.md).
 
 ```bash
-make setup
-make up
-make down
-make run
-make build
-make fmt
-make lint
-make test
-make test-unit
-make test-integration
-make test-functional
-make migrate-up
-make migrate-down
+rtk make setup
+rtk make up
+rtk make down
+rtk make run
+rtk make build
+rtk make fmt
+rtk make lint
+rtk make test
+rtk make test-unit
+rtk make test-integration
+rtk make test-functional
+rtk make migrate-up
+rtk make migrate-down
 ```
 
 ## Testing Strategy
@@ -380,16 +412,16 @@ make migrate-down
 ### Coverage by layer
 
 - Domain: entities, value objects, idempotency and status transitions
-- Application: use cases and event handlers for invoice creation, billing generation, payment processing and manual retry
+- Application: use cases, public contracts and event handlers for invoice creation, billing generation, payment processing and manual retry
 - Unit observability: telemetry bootstrap, route labeling, SQL sanitization, log enrichment, error taxonomy and event bus spans/metrics
-- Integration: PostgreSQL real via `testcontainers-go`, cobrindo fluxo critico, spans, metricas de retry e falha tecnica
+- Integration: PostgreSQL real via `testcontainers-go`, cobrindo fluxo critico, envelope do outbox, metricas de retry e falha tecnica
 - Functional: HTTP contract, `/metrics`, `traceparent`, log context minimo e rastreabilidade ponta a ponta
 
 ### How to run tests
 
 ```bash
-make test-unit
-make test-integration
-make test-functional
-make test
+rtk make test-unit
+rtk make test-integration
+rtk make test-functional
+rtk make test
 ```

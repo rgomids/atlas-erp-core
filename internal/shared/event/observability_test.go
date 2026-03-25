@@ -13,14 +13,27 @@ import (
 )
 
 type observedEvent struct {
-	name          string
-	InvoiceID     string
-	CustomerID    string
-	AttemptNumber int
+	Envelope[observedEventPayload]
+}
+
+type observedEventPayload struct {
+	InvoiceID     string `json:"invoice_id"`
+	CustomerID    string `json:"customer_id"`
+	AttemptNumber int    `json:"attempt_number"`
+}
+
+func newObservedEvent(ctx context.Context, eventName string) observedEvent {
+	return observedEvent{
+		Envelope: NewEnvelope(ctx, eventName, "invoice-123", Metadata{}.OccurredAt, observedEventPayload{
+			InvoiceID:     "invoice-123",
+			CustomerID:    "customer-456",
+			AttemptNumber: 1,
+		}),
+	}
 }
 
 func (event observedEvent) Name() string {
-	return event.name
+	return event.Metadata.EventName
 }
 
 func TestSyncBusObservabilityExportsSpansAndMetrics(t *testing.T) {
@@ -42,12 +55,7 @@ func TestSyncBusObservabilityExportsSpansAndMetrics(t *testing.T) {
 	}))
 
 	ctx, rootSpan := telemetry.StartUseCase(context.Background(), "invoices", "CreateInvoice")
-	if err := Publish(ctx, bus, "invoices", observedEvent{
-		name:          "InvoiceCreated",
-		InvoiceID:     "invoice-123",
-		CustomerID:    "customer-456",
-		AttemptNumber: 1,
-	}); err != nil {
+	if err := Publish(ctx, bus, "invoices", newObservedEvent(ctx, "InvoiceCreated")); err != nil {
 		t.Fatalf("publish observed event: %v", err)
 	}
 	rootSpan.End()

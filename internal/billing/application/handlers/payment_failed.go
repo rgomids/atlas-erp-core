@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rgomids/atlas-erp-core/internal/billing/application/usecases"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -23,5 +23,5 @@ func (handler PaymentFailed) Handle(ctx context.Context, event sharedevent.Event
 		return fmt.Errorf("unexpected event type %T", event)
 	}
 
-	return handler.markBillingFailed.Execute(ctx, domainEvent.BillingID)
+	return handler.markBillingFailed.Execute(ctx, domainEvent.Payload.BillingID)
 }

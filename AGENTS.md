@@ -6,7 +6,7 @@
 
 ## Fase atual
 
-**Phase 5 - Observability & Operations**
+**Phase 6 - Architectural Evolution & Distribution Readiness**
 
 Estado de referencia desta fase:
 
@@ -14,11 +14,13 @@ Estado de referencia desta fase:
 - fluxo funcional ponta a ponta da Phase 1 continua ativo
 - endurecimento tecnico da Phase 2 continua valido
 - comunicacao entre modulos continua priorizando **eventos internos in-process**
-- observabilidade agora inclui traces OpenTelemetry, metricas Prometheus e logs enriquecidos com `trace_id` e `span_id`
+- contratos entre modulos agora vivem em `internal/<module>/public`
+- eventos internos agora usam envelope padronizado com `event_id`, `event_name`, `occurred_at`, `aggregate_id`, `correlation_id` e `payload`
+- observabilidade continua incluindo traces OpenTelemetry, metricas Prometheus e logs enriquecidos com `trace_id` e `span_id`
 - pagamentos e handlers financeiros operam com **idempotencia por tentativa**
 - retry manual e controlado usa `attempt_number`
 - timeout de gateway e falhas tecnicas passam a gerar tentativa auditavel em `Failed`
-- preparacao inicial de consistencia eventual continua via `outbox_events`
+- `outbox_events` agora reflete `pending`, `processed` e `failed` no dispatch sincronico atual
 - stack local de desenvolvimento sobe `app`, `postgres`, `jaeger` e `prometheus`
 - modulos ativos: `customers`, `invoices`, `billing`, `payments`
 
@@ -132,6 +134,7 @@ Carregue o minimo suficiente para executar com seguranca:
 │   ├── api/
 │   └── migrate/
 ├── docs/
+│   ├── architecture/
 │   ├── adr/
 │   ├── commands.md
 │   └── diagrams/
@@ -252,7 +255,7 @@ Carregue o minimo suficiente para executar com seguranca:
 - Request-scoped e event-scoped logging com `request_id`
 - OpenTelemetry Instrumentation Pattern
 - Prometheus Pull Metrics Pattern
-- Outbox Pattern preparado de forma inicial
+- Outbox Pattern com lifecycle sincronico e envelope padronizado
 - Error mapping explicito entre dominio, aplicacao e HTTP
 - Observability conventions para spans, metricas e categorias de erro
 
@@ -387,13 +390,13 @@ Regras complementares:
 
 ## Checklist pos-implementacao
 
-- `make fmt`
-- `make lint`
-- `make test-unit`
-- `make test-integration`
-- `make test-functional`
-- `make test`
-- `make up`
+- `rtk make fmt`
+- `rtk make lint`
+- `rtk make test-unit`
+- `rtk make test-integration`
+- `rtk make test-functional`
+- `rtk make test`
+- `rtk make up`
 - revisar `README.md`
 - revisar `CHANGELOG.md`
 - revisar `docs/commands.md`
