@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
+	customerpublic "github.com/rgomids/atlas-erp-core/internal/customers/public"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
-	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/repositories"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/public/events"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -143,14 +143,14 @@ func TestCreateInvoicePropagatesCustomerErrorsAndListsInvoices(t *testing.T) {
 	t.Parallel()
 
 	repository := newInvoiceRepositoryFake()
-	createInvoice := NewCreateInvoice(repository, customerCheckerFake{err: customerentities.ErrCustomerNotFound}, nil)
+	createInvoice := NewCreateInvoice(repository, customerCheckerFake{err: customerpublic.ErrCustomerNotFound}, nil)
 
 	_, err := createInvoice.Execute(context.Background(), CreateInvoiceInput{
 		CustomerID:  "2af9b675-4c54-4b1e-9e1f-e56028421b6d",
 		AmountCents: 1500,
 		DueDate:     "2026-03-25",
 	})
-	if !errors.Is(err, customerentities.ErrCustomerNotFound) {
+	if !errors.Is(err, customerpublic.ErrCustomerNotFound) {
 		t.Fatalf("expected customer not found error, got %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestCreateInvoicePublishesInvoiceCreatedEvent(t *testing.T) {
 	bus := sharedevent.NewSyncBus()
 	var createdEvents []invoiceevents.InvoiceCreated
 
-	sharedevent.Subscribe(bus, invoiceevents.InvoiceCreated{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, invoiceevents.EventNameInvoiceCreated, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		createdEvents = append(createdEvents, event.(invoiceevents.InvoiceCreated))
 		return nil
 	}))
@@ -223,8 +223,8 @@ func TestCreateInvoicePublishesInvoiceCreatedEvent(t *testing.T) {
 		t.Fatalf("expected 1 invoice created event, got %d", len(createdEvents))
 	}
 
-	if createdEvents[0].InvoiceID != invoice.ID {
-		t.Fatalf("expected invoice id %q, got %q", invoice.ID, createdEvents[0].InvoiceID)
+	if createdEvents[0].Payload.InvoiceID != invoice.ID {
+		t.Fatalf("expected invoice id %q, got %q", invoice.ID, createdEvents[0].Payload.InvoiceID)
 	}
 }
 
@@ -249,20 +249,27 @@ func TestApplyPaymentApprovedMarksInvoicePaidAndPublishesInvoicePaid(t *testing.
 
 	bus := sharedevent.NewSyncBus()
 	var paidEvents []invoiceevents.InvoicePaid
-	sharedevent.Subscribe(bus, invoiceevents.InvoicePaid{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, invoiceevents.EventNameInvoicePaid, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		paidEvents = append(paidEvents, event.(invoiceevents.InvoicePaid))
 		return nil
 	}))
 
 	applyPaymentApproved := NewApplyPaymentApproved(repository, bus)
 
-	err = applyPaymentApproved.Execute(context.Background(), paymentevents.PaymentApproved{
-		PaymentID:        "payment-id",
-		BillingID:        "billing-id",
-		InvoiceID:        invoice.ID(),
-		GatewayReference: "gw-001",
-		ApprovedAt:       now.Add(time.Minute),
-	})
+	err = applyPaymentApproved.Execute(
+		context.Background(),
+		paymentevents.NewPaymentApproved(
+			context.Background(),
+			"payment-id",
+			"billing-id",
+			invoice.ID(),
+			"customer-id",
+			1,
+			"billing:billing-id:attempt:1",
+			"gw-001",
+			now.Add(time.Minute),
+		),
+	)
 	if err != nil {
 		t.Fatalf("apply payment approved: %v", err)
 	}
@@ -278,5 +285,9 @@ func TestApplyPaymentApprovedMarksInvoicePaidAndPublishesInvoicePaid(t *testing.
 
 	if len(paidEvents) != 1 {
 		t.Fatalf("expected 1 invoice paid event, got %d", len(paidEvents))
+	}
+
+	if paidEvents[0].EventMetadata().AggregateID != invoice.ID() {
+		t.Fatalf("expected invoice paid aggregate id %q, got %q", invoice.ID(), paidEvents[0].EventMetadata().AggregateID)
 	}
 }

@@ -24,11 +24,11 @@ Use esta skill ao alterar:
 - correlation ID preservado na borda HTTP
 - mensagens curtas, textuais e sem emoji
 - nenhum segredo em logs
-- preferir `make <target>` a comandos longos
+- preferir `rtk make <target>` a comandos longos
 
 ## Runtime local esperado
 
-- `make up` sobe `app` e `postgres`, quando esse for o setup oficial
+- `rtk make up` sobe `app` e `postgres`, quando esse for o setup oficial
 - `GET /health` responde `{"status":"ok"}`
 - banco está acessível ao bootstrap, conforme contrato atual do sistema
 

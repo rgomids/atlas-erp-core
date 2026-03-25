@@ -8,12 +8,12 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
-	customerports "github.com/rgomids/atlas-erp-core/internal/customers/application/ports"
+	customerpublic "github.com/rgomids/atlas-erp-core/internal/customers/public"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/application/dto"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
-	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/mappers"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
@@ -26,7 +26,7 @@ type CreateInvoiceInput struct {
 
 type CreateInvoice struct {
 	repository             repositories.InvoiceRepository
-	customerExistenceCheck customerports.ExistenceChecker
+	customerExistenceCheck customerpublic.ExistenceChecker
 	bus                    sharedevent.EventBus
 	now                    func() time.Time
 	observability          *observability.Runtime
@@ -34,7 +34,7 @@ type CreateInvoice struct {
 
 func NewCreateInvoice(
 	repository repositories.InvoiceRepository,
-	customerExistenceCheck customerports.ExistenceChecker,
+	customerExistenceCheck customerpublic.ExistenceChecker,
 	bus sharedevent.EventBus,
 	telemetry ...*observability.Runtime,
 ) CreateInvoice {
@@ -87,13 +87,19 @@ func (usecase CreateInvoice) Execute(ctx context.Context, input CreateInvoiceInp
 		attribute.String("atlas.invoice_id", invoice.ID()),
 	)
 
-	if err := sharedevent.Publish(ctx, usecase.bus, "invoices", invoiceevents.InvoiceCreated{
-		InvoiceID:   invoice.ID(),
-		CustomerID:  invoice.CustomerID(),
-		AmountCents: invoice.AmountCents(),
-		DueDate:     invoice.DueDate(),
-		CreatedAt:   invoice.CreatedAt(),
-	}); err != nil {
+	if err := sharedevent.Publish(
+		ctx,
+		usecase.bus,
+		"invoices",
+		invoiceevents.NewInvoiceCreated(
+			ctx,
+			invoice.ID(),
+			invoice.CustomerID(),
+			invoice.AmountCents(),
+			invoice.DueDate(),
+			invoice.CreatedAt(),
+		),
+	); err != nil {
 		errorType = observability.ErrorTypeInfrastructure
 		return dto.Invoice{}, err
 	}

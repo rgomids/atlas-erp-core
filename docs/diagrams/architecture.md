@@ -44,22 +44,22 @@ C4Container
     Rel(prometheus, web_api, "Coleta metricas", "HTTP /metrics")
 ```
 
-## C3 - Phase 5 Components
+## C3 - Phase 6 Components
 
 ```mermaid
 C4Component
-    title Component Diagram for Atlas ERP Core Phase 5
+    title Component Diagram for Atlas ERP Core Phase 6
 
     Container_Boundary(core, "Application Core") {
         Component(router, "HTTP Router", "internal/shared/http", "Registra middleware de correlation, tracing HTTP, request logging, healthcheck e /metrics")
         Component(observability_runtime, "Observability Runtime", "internal/shared/observability", "Inicializa tracer provider, meter provider, propagadores, metricas e query tracer do PostgreSQL")
-        Component(event_bus, "Sync Event Bus", "internal/shared/event", "Publica eventos in-process, registra payload no outbox e cria spans de publish e consume")
+        Component(event_bus, "Sync Event Bus", "internal/shared/event", "Publica eventos in-process via contratos publicos, padroniza envelope e atualiza lifecycle do outbox")
         Component(customers_module, "Customers Module", "application/domain/infrastructure", "Cria, atualiza e inativa clientes; instrumenta casos de uso")
-        Component(invoices_module, "Invoices Module", "application/domain/infrastructure", "Cria e lista invoices; publica InvoiceCreated e consome PaymentApproved")
-        Component(billing_module, "Billing Module", "application/domain/infrastructure", "Cria cobranca por invoice, controla attempt_number e reage a PaymentApproved/PaymentFailed")
-        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Consome BillingRequested, processa gateway com tracing, metricas e retry idempotente")
+        Component(invoices_module, "Invoices Module", "application/domain/infrastructure", "Cria e lista invoices; depende apenas do contrato publico de customers e publica eventos publicos")
+        Component(billing_module, "Billing Module", "application/domain/infrastructure", "Cria cobranca por invoice, controla attempt_number e expoe contrato publico para retry manual")
+        Component(payments_module, "Payments Module", "application/domain/infrastructure", "Consome BillingRequested publico, processa gateway com tracing, metricas e retry idempotente")
         Component(shared_pg, "Postgres Query Tracer", "internal/shared/postgres + internal/shared/observability", "Cria spans db.query e registra latencia por operacao e tabela sanitizada")
-        Component(shared_outbox, "Outbox Recorder", "internal/shared/outbox", "Registra eventos emitidos em outbox_events no mesmo contexto transacional quando existir")
+        Component(shared_outbox, "Outbox Recorder", "internal/shared/outbox", "Registra append em pending e atualiza processed/failed no dispatch sincronico")
         Component(shared_logs, "Structured Logs", "internal/shared/logging + correlation", "Produz logs JSON com module, request_id, trace_id, span_id, event_name, ids de dominio e error_type")
     }
 
@@ -76,7 +76,7 @@ C4Component
     Rel(event_bus, billing_module, "InvoiceCreated / PaymentApproved / PaymentFailed")
     Rel(event_bus, payments_module, "BillingRequested")
     Rel(payments_module, event_bus, "Publish PaymentApproved / PaymentFailed")
-    Rel(event_bus, shared_outbox, "Record payload")
+    Rel(event_bus, shared_outbox, "Append envelope + update status")
     Rel(event_bus, observability_runtime, "Record publish/consume metrics")
     Rel(shared_pg, main_db, "Exec / Query / QueryRow")
     Rel(observability_runtime, jaeger, "Exporta traces")
@@ -105,9 +105,11 @@ sequenceDiagram
     API->>Invoices: start span "application.usecase invoices.CreateInvoice"
     Invoices->>DB: span "db.query insert invoices"
     Invoices->>Bus: span "event.publish InvoiceCreated"
+    Bus->>DB: append outbox pending
     Bus->>Billing: span "event.consume billing.InvoiceCreated"
     Billing->>DB: span "db.query insert billings"
     Billing->>Bus: span "event.publish BillingRequested"
+    Bus->>DB: append outbox pending
     Bus->>Payments: span "event.consume payments.BillingRequested"
     Payments->>DB: span "db.query insert payments"
     Payments->>Gateway: span "integration.gateway payments.Process"
@@ -115,17 +117,36 @@ sequenceDiagram
     Payments->>DB: span "db.query update payments"
     alt Approved
         Payments->>Bus: publish PaymentApproved
+        Bus->>DB: mark outbox processed
         Bus->>Billing: consume PaymentApproved
         Billing->>DB: update billing Approved
         Bus->>Invoices: consume PaymentApproved
         Invoices->>DB: update invoice Paid
     else Failed
         Payments->>Bus: publish PaymentFailed
+        Bus->>DB: mark outbox processed
         Bus->>Billing: consume PaymentFailed
         Billing->>DB: update billing Failed
     end
     OTel->>Jaeger: exporta spans
     API-->>Admin: 201 + invoice payload
+```
+
+## Phase 6 Dependency Map
+
+```mermaid
+flowchart LR
+    customers["customers"]
+    invoices["invoices"]
+    billing["billing"]
+    payments["payments"]
+
+    customers -->|"public.ExistenceChecker"| invoices
+    invoices -->|"InvoiceCreated"| billing
+    billing -->|"public.PaymentCompatibilityPort"| payments
+    billing -->|"BillingRequested"| payments
+    payments -->|"PaymentApproved"| invoices
+    payments -->|"PaymentApproved / PaymentFailed"| billing
 ```
 
 ## Sequence - Metrics And Troubleshooting

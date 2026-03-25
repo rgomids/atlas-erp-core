@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
-	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
+	billingpublic "github.com/rgomids/atlas-erp-core/internal/billing/public"
+	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/public/events"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/handlers"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
@@ -29,7 +29,7 @@ type ModuleConfig struct {
 
 func NewModule(
 	pool *pgxpool.Pool,
-	billingPort billingports.PaymentCompatibilityPort,
+	billingPort billingpublic.PaymentCompatibilityPort,
 	bus sharedevent.EventBus,
 	gateway ports.PaymentGateway,
 	config ModuleConfig,
@@ -49,7 +49,7 @@ func NewModule(
 		config.GatewayTimeout,
 		obs,
 	)
-	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "payments", handlers.NewBillingRequested(processBillingRequest))
+	sharedevent.Subscribe(bus, billingevents.EventNameBillingRequested, "payments", handlers.NewBillingRequested(processBillingRequest))
 
 	return Module{
 		handler: paymentshttp.NewHandler(

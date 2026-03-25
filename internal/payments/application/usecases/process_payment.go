@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 
-	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
+	billingpublic "github.com/rgomids/atlas-erp-core/internal/billing/public"
 	"github.com/rgomids/atlas-erp-core/internal/payments/application/dto"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
@@ -17,13 +17,13 @@ type ProcessPaymentInput struct {
 }
 
 type ProcessPayment struct {
-	billingPort           billingports.PaymentCompatibilityPort
+	billingPort           billingpublic.PaymentCompatibilityPort
 	processBillingRequest ProcessBillingRequest
 	observability         *observability.Runtime
 }
 
 func NewProcessPayment(
-	billingPort billingports.PaymentCompatibilityPort,
+	billingPort billingpublic.PaymentCompatibilityPort,
 	processBillingRequest ProcessBillingRequest,
 	telemetry ...*observability.Runtime,
 ) ProcessPayment {

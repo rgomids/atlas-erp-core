@@ -6,16 +6,16 @@ Controlar evolucao por fase sem misturar observabilidade operacional, mudancas d
 
 ## Fase atual
 
-**Phase 5 - Observability & Operations**
+**Phase 6 - Architectural Evolution & Distribution Readiness**
 
 ## Escopo permitido nesta fase
 
-- instrumentar tracing e metricas com OpenTelemetry
-- expor `/metrics` e manter `GET /health`
-- enriquecer logs com `trace_id`, `span_id`, `event_name`, ids de dominio e `error_type`
-- padronizar categorias de erro para troubleshooting
-- adicionar stack local simples com Jaeger e Prometheus
-- reforcar testes e documentacao operacional da observabilidade
+- explicitar contratos publicos por modulo em `internal/<module>/public`
+- padronizar eventos internos com envelope estavel e catalogo publico
+- evoluir `outbox_events` para refletir `pending`, `processed` e `failed`
+- reforcar fronteiras internas com validacao automatizada de imports
+- documentar candidatos a extracao e criterios para distribuir
+- manter o fluxo principal funcional, observavel e com a mesma simplicidade operacional
 
 ## Fora do escopo por padrao
 
@@ -24,8 +24,8 @@ Sem decisao explicita adicional, nao iniciar como trabalho principal:
 - extracao de microservices
 - Kafka, SQS, RabbitMQ ou qualquer mensageria externa
 - OpenTelemetry Collector, Tempo, Grafana ou stack mais complexa que o necessario
-- alteracao de regra de negocio, payloads ou contratos funcionais
-- CQRS, event sourcing ou outbox assincrono como trabalho principal
+- alteracao de regra de negocio ou de contratos HTTP funcionais
+- CQRS, event sourcing ou dispatcher/outbox assincrono como trabalho principal
 - paralelizacao agressiva de agentes sem particao de dominio
 - automacao de autoevolucao de rules/skills sem revisao humana
 

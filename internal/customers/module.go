@@ -6,18 +6,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/rgomids/atlas-erp-core/internal/customers/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/customers/application/usecases"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	customershttp "github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/http"
 	"github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/persistence"
+	customerpublic "github.com/rgomids/atlas-erp-core/internal/customers/public"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type Module struct {
 	handler customershttp.Handler
-	checker ports.ExistenceChecker
+	checker customerpublic.ExistenceChecker
 }
 
 func NewModule(pool *pgxpool.Pool, bus sharedevent.EventBus, telemetry ...*observability.Runtime) Module {
@@ -38,7 +38,7 @@ func (module Module) Routes(router chi.Router) {
 	module.handler.Routes(router)
 }
 
-func (module Module) ExistenceChecker() ports.ExistenceChecker {
+func (module Module) ExistenceChecker() customerpublic.ExistenceChecker {
 	return module.checker
 }
 

@@ -10,9 +10,9 @@ import (
 
 	"github.com/rgomids/atlas-erp-core/internal/customers/application/dto"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
-	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/customers/domain/repositories"
 	"github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/mappers"
+	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
@@ -70,9 +70,12 @@ func (usecase CreateCustomer) Execute(ctx context.Context, input CreateCustomerI
 
 	span.SetAttributes(attribute.String("atlas.customer_id", customer.ID()))
 
-	if err := sharedevent.Publish(ctx, usecase.bus, "customers", customerevents.CustomerCreated{
-		CustomerID: customer.ID(),
-	}); err != nil {
+	if err := sharedevent.Publish(
+		ctx,
+		usecase.bus,
+		"customers",
+		customerevents.NewCustomerCreated(ctx, customer.ID(), customer.CreatedAt()),
+	); err != nil {
 		errorType = observability.ErrorTypeInfrastructure
 		return dto.Customer{}, err
 	}

@@ -8,8 +8,8 @@ import (
 
 	billingports "github.com/rgomids/atlas-erp-core/internal/billing/application/ports"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/entities"
-	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/billing/domain/repositories"
+	billingevents "github.com/rgomids/atlas-erp-core/internal/billing/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 )
 
@@ -82,7 +82,7 @@ func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
 	bus := sharedevent.NewSyncBus()
 	var requestedEvents []billingevents.BillingRequested
 
-	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, billingevents.EventNameBillingRequested, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		requestedEvents = append(requestedEvents, event.(billingevents.BillingRequested))
 		return nil
 	}))
@@ -108,8 +108,12 @@ func TestCreateBillingFromInvoicePublishesBillingRequested(t *testing.T) {
 		t.Fatalf("expected 1 billing requested event, got %d", len(requestedEvents))
 	}
 
-	if requestedEvents[0].AttemptNumber != 1 {
-		t.Fatalf("expected initial attempt number 1, got %d", requestedEvents[0].AttemptNumber)
+	if requestedEvents[0].Payload.AttemptNumber != 1 {
+		t.Fatalf("expected initial attempt number 1, got %d", requestedEvents[0].Payload.AttemptNumber)
+	}
+
+	if requestedEvents[0].EventMetadata().AggregateID != billing.ID {
+		t.Fatalf("expected aggregate id %q, got %q", billing.ID, requestedEvents[0].EventMetadata().AggregateID)
 	}
 }
 
@@ -120,7 +124,7 @@ func TestCreateBillingFromInvoiceIsIdempotent(t *testing.T) {
 	bus := sharedevent.NewSyncBus()
 	eventCount := 0
 
-	sharedevent.Subscribe(bus, billingevents.BillingRequested{}.Name(), "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
+	sharedevent.Subscribe(bus, billingevents.EventNameBillingRequested, "test", sharedevent.HandlerFunc(func(_ context.Context, event sharedevent.Event) error {
 		eventCount++
 		return nil
 	}))

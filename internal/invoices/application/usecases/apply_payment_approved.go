@@ -7,9 +7,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/entities"
-	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/domain/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices/domain/repositories"
-	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/domain/events"
+	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/public/events"
+	paymentevents "github.com/rgomids/atlas-erp-core/internal/payments/public/events"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
@@ -34,20 +34,20 @@ func (usecase ApplyPaymentApproved) Execute(ctx context.Context, paymentApproved
 		ctx,
 		"invoices",
 		"ApplyPaymentApproved",
-		attribute.String("atlas.invoice_id", paymentApproved.InvoiceID),
-		attribute.String("atlas.payment_id", paymentApproved.PaymentID),
+		attribute.String("atlas.invoice_id", paymentApproved.Payload.InvoiceID),
+		attribute.String("atlas.payment_id", paymentApproved.Payload.PaymentID),
 	)
 	defer func() {
 		usecase.observability.CompleteSpan(span, err, errorType)
 	}()
 
-	invoice, err := usecase.repository.GetByID(ctx, paymentApproved.InvoiceID)
+	invoice, err := usecase.repository.GetByID(ctx, paymentApproved.Payload.InvoiceID)
 	if err != nil {
 		errorType = observability.ErrorTypeInfrastructure
 		return err
 	}
 
-	if err := invoice.MarkPaid(paymentApproved.ApprovedAt); err != nil {
+	if err := invoice.MarkPaid(paymentApproved.EventMetadata().OccurredAt); err != nil {
 		if errors.Is(err, entities.ErrInvoiceImmutable) {
 			errorType = observability.ErrorTypeDomain
 			return nil
@@ -62,10 +62,7 @@ func (usecase ApplyPaymentApproved) Execute(ctx context.Context, paymentApproved
 		return err
 	}
 
-	if err := sharedevent.Publish(ctx, usecase.bus, "invoices", invoiceevents.InvoicePaid{
-		InvoiceID: invoice.ID(),
-		PaidAt:    paymentApproved.ApprovedAt,
-	}); err != nil {
+	if err := sharedevent.Publish(ctx, usecase.bus, "invoices", invoiceevents.NewInvoicePaid(ctx, invoice.ID(), paymentApproved.EventMetadata().OccurredAt)); err != nil {
 		errorType = observability.ErrorTypeInfrastructure
 		return err
 	}

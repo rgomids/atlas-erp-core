@@ -10,13 +10,14 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/rgomids/atlas-erp-core/internal/shared/correlation"
 	httpapi "github.com/rgomids/atlas-erp-core/internal/shared/http"
 	"github.com/rgomids/atlas-erp-core/internal/shared/observability"
 )
 
 type Event interface {
 	Name() string
+	EventMetadata() Metadata
+	EventPayload() any
 }
 
 type EventHandler interface {
@@ -29,15 +30,19 @@ type EventBus interface {
 }
 
 type EventRecord struct {
+	EventID       string
 	EventName     string
+	AggregateID   string
 	EmitterModule string
-	RequestID     string
+	CorrelationID string
 	Payload       []byte
 	OccurredAt    time.Time
 }
 
 type Recorder interface {
-	Record(ctx context.Context, record EventRecord) error
+	Append(ctx context.Context, record EventRecord) error
+	MarkProcessed(ctx context.Context, eventID string, processedAt time.Time) error
+	MarkFailed(ctx context.Context, eventID string, failedAt time.Time, errorMessage string) error
 }
 
 type HandlerFunc func(ctx context.Context, event Event) error
@@ -103,7 +108,7 @@ func (bus *SyncBus) Publish(ctx context.Context, domainEvent Event) error {
 	)
 	defer telemetry.CompleteSpan(publishSpan, nil, "")
 
-	if err := bus.record(ctx, emitterModule, domainEvent); err != nil {
+	if err := bus.appendRecord(ctx, emitterModule, domainEvent); err != nil {
 		logger.Error("🧾 event record failed", append([]any{slog.Any("err", err)}, eventLogArgs(domainEvent)...)...)
 		telemetry.RecordSpanError(publishSpan, err, observability.ErrorTypeInfrastructure)
 		return err
@@ -129,6 +134,13 @@ func (bus *SyncBus) Publish(ctx context.Context, domainEvent Event) error {
 		telemetry.RecordEventConsumed(handlerContext, domainEvent.Name(), consumerModule)
 
 		if err := handler.Handle(handlerContext, domainEvent); err != nil {
+			if recordErr := bus.markFailed(ctx, domainEvent, err); recordErr != nil {
+				handlerLogger.Error(
+					"🧾 event outbox failed status update failed",
+					append([]any{slog.Any("err", recordErr)}, eventLogArgs(domainEvent)...)...,
+				)
+			}
+
 			handlerLogger.Error(
 				"💥 event handler failed",
 				append(
@@ -146,6 +158,12 @@ func (bus *SyncBus) Publish(ctx context.Context, domainEvent Event) error {
 
 		handlerLogger.Info("✅ event handled", eventLogArgs(domainEvent)...)
 		telemetry.CompleteSpan(handlerSpan, nil, "")
+	}
+
+	if err := bus.markProcessed(ctx, domainEvent); err != nil {
+		logger.Error("🧾 event mark processed failed", append([]any{slog.Any("err", err)}, eventLogArgs(domainEvent)...)...)
+		telemetry.RecordSpanError(publishSpan, err, observability.ErrorTypeInfrastructure)
+		return err
 	}
 
 	return nil
@@ -204,7 +222,7 @@ func emitterModuleFromContext(ctx context.Context) string {
 	return module
 }
 
-func (bus *SyncBus) record(ctx context.Context, emitterModule string, domainEvent Event) error {
+func (bus *SyncBus) appendRecord(ctx context.Context, emitterModule string, domainEvent Event) error {
 	if bus.recorder == nil {
 		return nil
 	}
@@ -214,34 +232,60 @@ func (bus *SyncBus) record(ctx context.Context, emitterModule string, domainEven
 		return err
 	}
 
-	return bus.recorder.Record(ctx, EventRecord{
+	metadata := domainEvent.EventMetadata()
+
+	return bus.recorder.Append(ctx, EventRecord{
+		EventID:       metadata.EventID,
 		EventName:     domainEvent.Name(),
+		AggregateID:   metadata.AggregateID,
 		EmitterModule: emitterModule,
-		RequestID:     correlation.ID(ctx),
+		CorrelationID: metadata.CorrelationID,
 		Payload:       payload,
-		OccurredAt:    bus.now().UTC(),
+		OccurredAt:    metadata.OccurredAt,
 	})
 }
 
-func eventLogArgs(domainEvent Event) []any {
-	value := reflect.ValueOf(domainEvent)
-	if !value.IsValid() {
+func (bus *SyncBus) markProcessed(ctx context.Context, domainEvent Event) error {
+	if bus.recorder == nil {
 		return nil
+	}
+
+	return bus.recorder.MarkProcessed(ctx, domainEvent.EventMetadata().EventID, bus.now().UTC())
+}
+
+func (bus *SyncBus) markFailed(ctx context.Context, domainEvent Event, failure error) error {
+	if bus.recorder == nil {
+		return nil
+	}
+
+	return bus.recorder.MarkFailed(ctx, domainEvent.EventMetadata().EventID, bus.now().UTC(), failure.Error())
+}
+
+func eventLogArgs(domainEvent Event) []any {
+	metadata := domainEvent.EventMetadata()
+	args := []any{
+		slog.String("event_id", metadata.EventID),
+		slog.String("aggregate_id", metadata.AggregateID),
+		slog.String("correlation_id", metadata.CorrelationID),
+	}
+
+	value := reflect.ValueOf(domainEvent.EventPayload())
+	if !value.IsValid() {
+		return args
 	}
 
 	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
-			return nil
+			return args
 		}
 
 		value = value.Elem()
 	}
 
 	if value.Kind() != reflect.Struct {
-		return nil
+		return args
 	}
 
-	args := make([]any, 0, 6)
 	appendStringField(&args, value, "CustomerID", "customer_id")
 	appendStringField(&args, value, "InvoiceID", "invoice_id")
 	appendStringField(&args, value, "BillingID", "billing_id")
@@ -255,24 +299,30 @@ func eventLogArgs(domainEvent Event) []any {
 }
 
 func eventAttributes(domainEvent Event) []attribute.KeyValue {
-	value := reflect.ValueOf(domainEvent)
+	metadata := domainEvent.EventMetadata()
+	attributes := []attribute.KeyValue{
+		attribute.String("atlas.event_id", metadata.EventID),
+		attribute.String("atlas.aggregate_id", metadata.AggregateID),
+		attribute.String("atlas.correlation_id", metadata.CorrelationID),
+	}
+
+	value := reflect.ValueOf(domainEvent.EventPayload())
 	if !value.IsValid() {
-		return nil
+		return attributes
 	}
 
 	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
-			return nil
+			return attributes
 		}
 
 		value = value.Elem()
 	}
 
 	if value.Kind() != reflect.Struct {
-		return nil
+		return attributes
 	}
 
-	attributes := make([]attribute.KeyValue, 0, 7)
 	appendStringAttribute(&attributes, value, "CustomerID", "atlas.customer_id")
 	appendStringAttribute(&attributes, value, "InvoiceID", "atlas.invoice_id")
 	appendStringAttribute(&attributes, value, "BillingID", "atlas.billing_id")

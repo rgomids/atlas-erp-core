@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Preservar a coerencia do modular monolith e evitar erosao arquitetural na evolucao da Phase 3.
+Preservar a coerencia do modular monolith e evitar erosao arquitetural na evolucao da Phase 6.
 
 ## Arquitetura adotada
 
@@ -52,7 +52,7 @@ interface -> application -> domain
 
 - eventos internos in-process como mecanismo principal
 
-### Excecoes aceitas na Phase 3
+### Excecoes aceitas na fase atual
 
 - verificacao de existencia de customer para emissao de invoice
 - port publico de `billing` para retry manual em `POST /payments`

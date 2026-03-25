@@ -12,12 +12,24 @@ import (
 	"github.com/rgomids/atlas-erp-core/internal/shared/logging"
 )
 
+type testEventPayload struct {
+	InvoiceID string `json:"invoice_id"`
+}
+
 type testEvent struct {
-	name string
+	Envelope[testEventPayload]
+}
+
+func newTestEvent(ctx context.Context, eventName string, aggregateID string) testEvent {
+	return testEvent{
+		Envelope: NewEnvelope(ctx, eventName, aggregateID, Metadata{}.OccurredAt, testEventPayload{
+			InvoiceID: aggregateID,
+		}),
+	}
 }
 
 func (event testEvent) Name() string {
-	return event.name
+	return event.Metadata.EventName
 }
 
 func TestSyncBusPublishesInSubscriptionOrder(t *testing.T) {
@@ -47,7 +59,7 @@ func TestSyncBusPublishesInSubscriptionOrder(t *testing.T) {
 		return nil
 	}))
 
-	if err := Publish(context.Background(), bus, "invoices", testEvent{name: "InvoiceCreated"}); err != nil {
+	if err := Publish(context.Background(), bus, "invoices", newTestEvent(context.Background(), "InvoiceCreated", "invoice-123")); err != nil {
 		t.Fatalf("publish event: %v", err)
 	}
 
@@ -83,7 +95,7 @@ func TestSyncBusStopsOnFirstHandlerError(t *testing.T) {
 		return nil
 	}))
 
-	err := Publish(context.Background(), bus, "billing", testEvent{name: "BillingRequested"})
+	err := Publish(context.Background(), bus, "billing", newTestEvent(context.Background(), "BillingRequested", "billing-123"))
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected error %v, got %v", expectedErr, err)
 	}

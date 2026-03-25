@@ -1,6 +1,10 @@
 package entities
 
-import "errors"
+import (
+	"errors"
+
+	billingpublic "github.com/rgomids/atlas-erp-core/internal/billing/public"
+)
 
 var (
 	ErrInvalidBillingID         = errors.New("invalid billing id")
@@ -8,6 +12,6 @@ var (
 	ErrInvalidCustomerReference = errors.New("invalid customer reference")
 	ErrInvalidAttemptNumber     = errors.New("invalid attempt number")
 	ErrBillingAlreadyExists     = errors.New("billing already exists for invoice")
-	ErrBillingNotFound          = errors.New("billing not found")
-	ErrBillingAlreadyApproved   = errors.New("billing already approved")
+	ErrBillingNotFound          = billingpublic.ErrBillingNotFound
+	ErrBillingAlreadyApproved   = billingpublic.ErrBillingAlreadyApproved
 )

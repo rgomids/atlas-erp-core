@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-03-25
+
+### Added
+
+- Module-owned public contracts in `internal/<module>/public` for `customers`, `billing`, and all public event catalogs.
+- Standardized event envelope with `metadata` and `payload`, including `event_id`, `event_name`, `occurred_at`, `aggregate_id`, and `correlation_id`.
+- Outbox lifecycle updates in `internal/shared/outbox` to mark events as `pending`, `processed`, or `failed` during the current synchronous dispatch.
+- Architecture guard test blocking cross-module imports outside `public`, plus unit coverage for event catalogs and metadata constructors.
+- Distribution-readiness documentation in `docs/architecture/distribution-readiness.md` and ADR 0006 for future extraction criteria and trade-offs.
+
+### Changed
+
+- Project status moved from Phase 5 to Phase 6 - Architectural Evolution & Distribution Readiness.
+- `customers`, `invoices`, `billing`, and `payments` now publish and consume public events instead of importing other modules through `domain/events`.
+- `outbox_events` now stores `aggregate_id`, `correlation_id`, `processed_at`, `failed_at`, and `error_message`, while persisting the full event envelope.
+- README, AGENTS, commands guide, diagrams, phase status, and governance artifacts now document Phase 6 and use `rtk`-prefixed operational commands.
+
+### Fixed
+
+- Cross-module dependencies from application code no longer bypass public contracts.
+- Failed synchronous event dispatches now leave an auditable `failed` status in the outbox when the append has already succeeded.
+
 ## [0.6.0] - 2026-03-22
 
 ### Added
