@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-03-25
+
+### Added
+
+- `ATLAS_FAULT_PROFILE` runtime surface with controlled local fault profiles for gateway timeout, flaky first gateway call, duplicated `BillingRequested` delivery, injected consumer failure, and outbox append failure.
+- Phase 7 benchmark suite in `test/benchmark` with local HTTP benchmarks for customer creation, invoice creation, manual retry, and end-to-end flow.
+- Benchmark report generation to `docs/benchmarks/phase7-baseline.json` and `docs/benchmarks/phase7-baseline.md`.
+- Architecture trade-off and failure scenario documentation in `docs/architecture/trade-offs.md` and `docs/architecture/failure-scenarios.md`.
+- ADR catalog in `docs/adr/README.md` and stronger ADR wording for modular monolith, internal events, idempotency, outbox preparation, and extraction criteria.
+
+### Changed
+
+- Project status moved from Phase 6 to Phase 7 - Portfolio Differentiation & Advanced Engineering.
+- Bootstrap now wires fault-aware decorators only at technical seams: config, event bus, outbox recorder, and mock gateway.
+- README, AGENTS, command guide, diagrams, phase status, and governance artifacts now present the repository as a portfolio-grade technical showcase.
+- Operational documentation now prefers direct `rtk` commands instead of Makefile-first workflows.
+
+### Fixed
+
+- Duplicated `BillingRequested` delivery no longer risks creating a duplicate approved payment when the same `(billing_id, attempt_number)` is replayed.
+- Injected consumer and outbox failures are now documented and covered as predictable architectural scenarios instead of implicit edge cases.
+
 ## [0.7.0] - 2026-03-25
 
 ### Added

@@ -1,43 +1,57 @@
 # Command Reference
 
-Este arquivo centraliza os principais comandos operacionais do projeto na Phase 6.
+Este arquivo centraliza os comandos operacionais oficiais da Phase 7.
 
-## Configuracao por ambiente
+Superficie preferencial:
 
-- `.env` continua sendo a base local
-- `.env.<APP_ENV>` e carregado como overlay opcional
-- `PAYMENT_GATEWAY_TIMEOUT_MS` controla o timeout por tentativa de pagamento
-- `OTEL_EXPORTER_OTLP_ENDPOINT` habilita exportacao de traces fora do Compose; vazio desabilita
+- comandos diretos com `rtk`
+- `docker compose` para subir a stack local
+- `go test` para validacao e benchmark
 
-## Setup e runtime
+O Makefile permanece apenas como conveniencia secundaria e nao e a interface principal documentada.
 
-```bash
-rtk make setup
-rtk make up
-rtk make down
-rtk make run
-rtk make build
-```
+## Preparacao local
 
-## Qualidade
+### 1. Criar `.env` local
 
 ```bash
-rtk make fmt
-rtk make lint
-rtk make test-unit
-rtk make test-integration
-rtk make test-functional
-rtk make test
+rtk cp .env.example .env
 ```
 
-## Banco e migrations
+### 2. Subir a stack oficial
 
 ```bash
-rtk make migrate-up
-rtk make migrate-down
+rtk docker compose up --build -d
 ```
 
-## Endpoints operacionais
+Servicos esperados:
+
+- API em `http://localhost:8080`
+- PostgreSQL em `localhost:5432`
+- Jaeger em `http://localhost:16686`
+- Prometheus em `http://localhost:9090`
+
+### 3. Rodar migracoes manualmente
+
+```bash
+rtk go run ./cmd/migrate --direction up
+```
+
+### 4. Rodar a API fora do Compose
+
+Use este caminho quando quiser iterar localmente no binario da API mantendo PostgreSQL, Jaeger e Prometheus no Compose:
+
+```bash
+rtk env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### 5. Encerrar a stack
+
+```bash
+rtk docker compose down --remove-orphans
+```
+
+## Validacao rapida
 
 ### Healthcheck
 
@@ -45,146 +59,196 @@ rtk make migrate-down
 rtk curl http://localhost:8080/health
 ```
 
-### Metricas Prometheus
+### Metricas
 
 ```bash
 rtk curl http://localhost:8080/metrics
 ```
 
-### Traces no Jaeger
+## Fluxo principal
 
-- UI local: `http://localhost:16686`
-- servico esperado: `atlas-erp-core`
-
-### Prometheus local
-
-- UI local: `http://localhost:9090`
-
-## Fluxo principal da aplicacao
-
-### 1. Criar cliente
+### Criar cliente
 
 ```bash
 rtk curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-001' \
+  -H 'X-Correlation-ID: demo-phase7-001' \
   -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
 ```
 
-### 2. Atualizar cliente
-
-```bash
-rtk curl -X PUT http://localhost:8080/customers/<customer-id> \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-002' \
-  -d '{"name":"Atlas Updated","email":"billing@atlas.io"}'
-```
-
-### 3. Inativar cliente
-
-```bash
-rtk curl -X PATCH http://localhost:8080/customers/<customer-id>/inactive \
-  -H 'X-Correlation-ID: demo-req-003'
-```
-
-### 4. Criar invoice e disparar o fluxo automatico
+### Criar invoice e disparar o fluxo automatico
 
 ```bash
 rtk curl -X POST http://localhost:8080/invoices \
   -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-004' \
-  -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
+  -H 'X-Correlation-ID: demo-phase7-002' \
+  -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-31"}'
 ```
 
-### 5. Listar invoices do cliente
+### Listar invoices do cliente
 
 ```bash
 rtk curl http://localhost:8080/customers/<customer-id>/invoices \
-  -H 'X-Correlation-ID: demo-req-005'
+  -H 'X-Correlation-ID: demo-phase7-003'
 ```
 
-### 6. Retry manual de pagamento apos falha
+### Retry manual de pagamento
 
 ```bash
 rtk curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-006' \
+  -H 'X-Correlation-ID: demo-phase7-004' \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
-Resposta possivel em falha tecnica do gateway:
+## Testes
 
-```json
-{
-  "status": "Failed",
-  "attempt_number": 2,
-  "failure_category": "gateway_timeout"
-}
-```
-
-## Propagacao de traceparent
-
-O contrato de `X-Correlation-ID` continua igual. Para tracing distribuido local, tambem e possivel enviar `traceparent`:
+### Suite completa
 
 ```bash
-rtk curl http://localhost:8080/customers/<customer-id>/invoices \
-  -H 'X-Correlation-ID: demo-req-007' \
-  -H 'traceparent: 00-11111111111111111111111111111111-2222222222222222-01'
+rtk go test ./...
 ```
 
-## Contratos publicos e eventos
+### Testes unitarios
 
-- contratos inter-modulo ficam apenas em `internal/<module>/public`
-- eventos publicos ficam em `internal/<module>/public/events`
-- `outbox_events` persiste envelope com `metadata` e `payload`
-- status do outbox no dispatch sincronico atual: `pending`, `processed`, `failed`
+```bash
+rtk go test ./internal/...
+```
 
-## Sinais principais para troubleshooting
+### Testes de integracao
 
-### Metricas HTTP
+```bash
+rtk go test ./test/integration/...
+```
+
+### Testes funcionais
+
+```bash
+rtk go test ./test/functional/...
+```
+
+## Benchmark reproduzivel
+
+### Rodar benchmarks HTTP da Phase 7
+
+```bash
+rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark
+```
+
+### Gerar baseline em JSON e Markdown
+
+```bash
+rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark \
+  -args \
+  -report-json docs/benchmarks/phase7-baseline.json \
+  -report-md docs/benchmarks/phase7-baseline.md
+```
+
+Saidas esperadas:
+
+- `avg_ms`
+- `p95_ms`
+- `ops/s`
+- `error_rate_pct`
+
+Se Docker ou `testcontainers-go` nao estiverem disponiveis, os artefatos ainda sao gerados com `status: no_samples` e uma nota explicando o pre-requisito ausente.
+Use `rtk proxy go test` nesses comandos para preservar os flags de benchmark e exportacao.
+
+## Perfis de falha controlada
+
+Todos os perfis abaixo sao exclusivos para avaliacao local e dev. Em `APP_ENV=production`, `ATLAS_FAULT_PROFILE` deve ser `none`.
+
+### Sem falha injetada
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=none OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Timeout no gateway
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Primeira chamada ao gateway falha, retry manual pode aprovar
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=payment_flaky_first OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Primeira entrega de `BillingRequested` e duplicada
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Primeira entrega de `BillingRequested` para `payments` falha
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=event_consumer_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Primeiro append no outbox falha antes dos consumidores
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=outbox_append_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+## Observabilidade
+
+### Traces
+
+- UI local: `http://localhost:16686`
+- service name esperado: `atlas-erp-core`
+
+### Prometheus
+
+- UI local: `http://localhost:9090`
+
+### Span names principais
+
+- `http.request {METHOD} {route}`
+- `application.usecase {module}.{UseCase}`
+- `event.publish {EventName}`
+- `event.consume {consumer_module}.{EventName}`
+- `db.query {operation} {table}`
+- `integration.gateway payments.Process`
+
+### Metricas principais
 
 - `atlas_erp_http_requests_total`
 - `atlas_erp_http_request_errors_total`
 - `atlas_erp_http_request_duration_seconds`
-
-### Metricas de aplicacao
-
 - `atlas_erp_events_published_total`
 - `atlas_erp_events_consumed_total`
 - `atlas_erp_event_handler_failures_total`
 - `atlas_erp_payment_retries_total`
-
-### Metricas de persistencia e integracao
-
 - `atlas_erp_db_query_duration_seconds`
 - `atlas_erp_gateway_request_duration_seconds`
 - `atlas_erp_gateway_failures_total`
 
-## Diagnostico de falhas de pagamento
+## Diagnostico rapido
 
-- `gateway_timeout`: o gateway excedeu `PAYMENT_GATEWAY_TIMEOUT_MS`
-- `gateway_error`: erro tecnico do adapter ou resposta invalida
-- `gateway_declined`: o gateway respondeu, mas o pagamento foi recusado
-- `attempt_number`: numero da tentativa persistida na cobranca e no pagamento
-- `retry_count`: campo operacional de observabilidade, derivado de `attempt_number - 1`
+### Timeout de gateway
 
-## Contrato de erro canonico
+- validar `PAYMENT_GATEWAY_TIMEOUT_MS`
+- conferir `failure_category=gateway_timeout`
+- conferir traces `integration.gateway payments.Process`
 
-### Exemplo de erro de validacao
+### Duplicidade de evento
 
-```bash
-rtk curl -X POST http://localhost:8080/customers \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-008' \
-  -d '{"name":"Atlas Co","email":"team@atlas.io"}'
-```
+- usar `ATLAS_FAULT_PROFILE=duplicate_billing_requested`
+- validar que ha apenas um pagamento `Approved` por invoice
+- conferir `attempt_number` e `idempotency_key`
 
-Resposta esperada:
+### Falha no consumo interno
 
-```json
-{
-  "error": "invalid_input",
-  "message": "document is required",
-  "request_id": "demo-req-008"
-}
-```
+- usar `ATLAS_FAULT_PROFILE=event_consumer_failure`
+- validar `outbox_events.status=failed`
+- conferir ausencia de `PaymentApproved`
+
+### Falha no append do outbox
+
+- usar `ATLAS_FAULT_PROFILE=outbox_append_failure`
+- validar persistencia do aggregate upstream
+- validar ausencia de consumidores downstream e de registro no outbox

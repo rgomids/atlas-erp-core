@@ -22,6 +22,7 @@ Adotar as seguintes decisoes para a Phase 4:
 3. a tentativa e reservada em `Pending` antes da chamada ao gateway, garantindo idempotencia por `(billing_id, attempt_number)`.
 4. timeout e erro tecnico de gateway passam a resultar em `PaymentFailed` persistido, sem quebrar a criacao da invoice nem o retry manual.
 5. o event bus continua sincronico, mas agora tambem registra cada evento em `outbox_events`.
+6. a estrategia de resiliencia continua propositalmente local e auditavel: sem backoff distribuido, sem dead-letter e sem dispatcher assincrono.
 
 ## Consequences
 
@@ -31,6 +32,7 @@ Adotar as seguintes decisoes para a Phase 4:
 - retry manual passa a ser previsivel e auditavel
 - falha tecnica externa nao remove rastreabilidade da tentativa
 - o repositorio ganha base concreta para ativar outbox assincrono no futuro
+- o comportamento de idempotencia e retry passa a ser explicavel por testes, metadados e persistencia concreta
 
 ### Negative
 
@@ -42,3 +44,4 @@ Adotar as seguintes decisoes para a Phase 4:
 
 - esta ADR nao introduz Kafka, SQS, microservices, CQRS nem backoff exponencial
 - a publicacao assincrona do outbox fica como passo futuro, nao como parte da Phase 4
+- o outbox desta fase e preparacao arquitetural, nao uma garantia de entrega distribuida

@@ -6,16 +6,16 @@ Controlar evolucao por fase sem misturar observabilidade operacional, mudancas d
 
 ## Fase atual
 
-**Phase 6 - Architectural Evolution & Distribution Readiness**
+**Phase 7 - Portfolio Differentiation & Advanced Engineering**
 
 ## Escopo permitido nesta fase
 
-- explicitar contratos publicos por modulo em `internal/<module>/public`
-- padronizar eventos internos com envelope estavel e catalogo publico
-- evoluir `outbox_events` para refletir `pending`, `processed` e `failed`
-- reforcar fronteiras internas com validacao automatizada de imports
-- documentar candidatos a extracao e criterios para distribuir
-- manter o fluxo principal funcional, observavel e com a mesma simplicidade operacional
+- manter o fluxo principal funcional, observavel e mensuravel
+- adicionar benchmark local reproduzivel para fluxos principais
+- adicionar simulacao controlada de falhas em seams tecnicos
+- reforcar testes de reprocessamento, idempotencia e falhas operacionais
+- documentar trade-offs, limitacoes conhecidas e criterios de futura extracao
+- elevar README, ADRs e diagramas para material de apresentacao tecnica
 
 ## Fora do escopo por padrao
 

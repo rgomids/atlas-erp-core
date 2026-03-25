@@ -7,11 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rgomids/atlas-erp-core/internal/billing"
 	billingpersistence "github.com/rgomids/atlas-erp-core/internal/billing/infrastructure/persistence"
+	billingpublic "github.com/rgomids/atlas-erp-core/internal/billing/public"
 	"github.com/rgomids/atlas-erp-core/internal/customers"
 	customersusecases "github.com/rgomids/atlas-erp-core/internal/customers/application/usecases"
+	customerentities "github.com/rgomids/atlas-erp-core/internal/customers/domain/entities"
 	customerpersistence "github.com/rgomids/atlas-erp-core/internal/customers/infrastructure/persistence"
 	customerevents "github.com/rgomids/atlas-erp-core/internal/customers/public/events"
 	"github.com/rgomids/atlas-erp-core/internal/invoices"
@@ -19,13 +22,16 @@ import (
 	invoicepersistence "github.com/rgomids/atlas-erp-core/internal/invoices/infrastructure/persistence"
 	invoiceevents "github.com/rgomids/atlas-erp-core/internal/invoices/public/events"
 	"github.com/rgomids/atlas-erp-core/internal/payments"
+	paymentports "github.com/rgomids/atlas-erp-core/internal/payments/application/ports"
 	paymentsusecases "github.com/rgomids/atlas-erp-core/internal/payments/application/usecases"
 	"github.com/rgomids/atlas-erp-core/internal/payments/domain/entities"
 	"github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/integration"
 	paymentpersistence "github.com/rgomids/atlas-erp-core/internal/payments/infrastructure/persistence"
+	"github.com/rgomids/atlas-erp-core/internal/shared/config"
 	sharedevent "github.com/rgomids/atlas-erp-core/internal/shared/event"
 	"github.com/rgomids/atlas-erp-core/internal/shared/outbox"
 	sharedpostgres "github.com/rgomids/atlas-erp-core/internal/shared/postgres"
+	"github.com/rgomids/atlas-erp-core/internal/shared/runtimefaults"
 	"github.com/rgomids/atlas-erp-core/test/support"
 )
 
@@ -518,8 +524,318 @@ func TestPhase6CustomerCreatedUsesStandardizedEnvelopeInOutbox(t *testing.T) {
 	}
 }
 
+func TestPhase7DuplicateBillingRequestedDoesNotCreateDuplicatePayment(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer pool.Close()
+
+	eventBus := newIntegrationEventBusWithFaultProfile(pool, config.FaultProfileDuplicateBillingRequest)
+	customerModule := customers.NewModule(pool, eventBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), eventBus, newIntegrationGateway(config.FaultProfileDuplicateBillingRequest, time.Second), payments.ModuleConfig{
+		GatewayTimeout: time.Second,
+	})
+
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, eventBus)
+	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "51022033011",
+		Email:    "duplicate@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+
+	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
+	invoice, err := createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
+		CustomerID:  customer.ID,
+		AmountCents: 4500,
+		DueDate:     "2026-03-31",
+	})
+	if err != nil {
+		t.Fatalf("create invoice with duplicated delivery: %v", err)
+	}
+
+	paymentRepository := paymentpersistence.NewPostgresRepository(pool)
+	storedPayments, err := paymentRepository.ListByInvoiceID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("list payments by invoice: %v", err)
+	}
+
+	if len(storedPayments) != 1 {
+		t.Fatalf("expected one approved payment after duplicated BillingRequested, got %d", len(storedPayments))
+	}
+
+	if storedPayments[0].Status() != "Approved" {
+		t.Fatalf("expected approved payment after duplicated BillingRequested, got %q", storedPayments[0].Status())
+	}
+}
+
+func TestPhase7PaymentFlakyFirstAllowsSuccessfulManualRetry(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer pool.Close()
+
+	eventBus := newIntegrationEventBusWithFaultProfile(pool, config.FaultProfilePaymentFlakyFirst)
+	customerModule := customers.NewModule(pool, eventBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	gateway := newIntegrationGateway(config.FaultProfilePaymentFlakyFirst, time.Second)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), eventBus, gateway, payments.ModuleConfig{
+		GatewayTimeout: time.Second,
+	})
+
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, eventBus)
+	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "51022033012",
+		Email:    "flaky@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+
+	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
+	invoice, err := createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
+		CustomerID:  customer.ID,
+		AmountCents: 5500,
+		DueDate:     "2026-03-31",
+	})
+	if err != nil {
+		t.Fatalf("create invoice with flaky gateway: %v", err)
+	}
+
+	processBillingRequest := paymentsusecases.NewProcessBillingRequest(
+		paymentpersistence.NewPostgresRepository(pool),
+		gateway,
+		sharedpostgres.NewTxManager(pool),
+		eventBus,
+		time.Second,
+	)
+	processPayment := paymentsusecases.NewProcessPayment(billingModule.PaymentPort(), processBillingRequest)
+
+	payment, err := processPayment.Execute(ctx, paymentsusecases.ProcessPaymentInput{InvoiceID: invoice.ID})
+	if err != nil {
+		t.Fatalf("manual retry payment: %v", err)
+	}
+
+	if payment.Status != "Approved" {
+		t.Fatalf("expected approved manual retry after flaky first call, got %q", payment.Status)
+	}
+
+	storedInvoice, err := invoiceRepository.GetByID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("get stored invoice: %v", err)
+	}
+
+	if storedInvoice.Status() != "Paid" {
+		t.Fatalf("expected paid invoice after manual retry, got %q", storedInvoice.Status())
+	}
+
+	storedPayments, err := paymentpersistence.NewPostgresRepository(pool).ListByInvoiceID(ctx, invoice.ID)
+	if err != nil {
+		t.Fatalf("list stored payments: %v", err)
+	}
+
+	if len(storedPayments) != 2 {
+		t.Fatalf("expected two payment attempts, got %d", len(storedPayments))
+	}
+
+	if storedPayments[0].FailureCategory() != entities.FailureCategoryGatewayError {
+		t.Fatalf("expected first attempt gateway_error, got %q", storedPayments[0].FailureCategory())
+	}
+
+	if storedPayments[1].Status() != "Approved" {
+		t.Fatalf("expected second attempt approved, got %q", storedPayments[1].Status())
+	}
+}
+
+func TestPhase7InjectedConsumerFailureLeavesBillingRequestedAndOutboxFailed(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer pool.Close()
+
+	eventBus := newIntegrationEventBusWithFaultProfile(pool, config.FaultProfileEventConsumerFailure)
+	customerModule := customers.NewModule(pool, eventBus)
+	invoices.NewModule(pool, customerModule.ExistenceChecker(), eventBus)
+	billingModule := billing.NewModule(pool, eventBus)
+	_ = payments.NewModule(pool, billingModule.PaymentPort(), eventBus, newIntegrationGateway(config.FaultProfileEventConsumerFailure, time.Second), payments.ModuleConfig{
+		GatewayTimeout: time.Second,
+	})
+
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	createCustomer := customersusecases.NewCreateCustomer(customerRepository, eventBus)
+	customer, err := createCustomer.Execute(ctx, customersusecases.CreateCustomerInput{
+		Name:     "Atlas Co",
+		Document: "51022033013",
+		Email:    "consumer-failure@atlas.io",
+	})
+	if err != nil {
+		t.Fatalf("create customer: %v", err)
+	}
+
+	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
+	_, err = createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
+		CustomerID:  customer.ID,
+		AmountCents: 6500,
+		DueDate:     "2026-03-31",
+	})
+	if !errors.Is(err, sharedevent.ErrInjectedConsumerFailure) {
+		t.Fatalf("expected injected consumer failure, got %v", err)
+	}
+
+	storedInvoices, getErr := invoiceRepository.ListByCustomerID(ctx, customer.ID)
+	if getErr != nil {
+		t.Fatalf("list stored invoices: %v", getErr)
+	}
+
+	if len(storedInvoices) != 1 {
+		t.Fatalf("expected one stored invoice after consumer failure, got %d", len(storedInvoices))
+	}
+
+	if storedInvoices[0].Status() != "Pending" {
+		t.Fatalf("expected pending invoice after consumer failure, got %q", storedInvoices[0].Status())
+	}
+
+	storedBilling, getErr := billingpersistence.NewPostgresRepository(pool).GetByInvoiceID(ctx, storedInvoices[0].ID())
+	if getErr != nil {
+		t.Fatalf("get stored billing: %v", getErr)
+	}
+
+	if storedBilling.Status() != "Requested" {
+		t.Fatalf("expected requested billing after consumer failure, got %q", storedBilling.Status())
+	}
+
+	storedPayments, getErr := paymentpersistence.NewPostgresRepository(pool).ListByInvoiceID(ctx, storedInvoices[0].ID())
+	if getErr != nil {
+		t.Fatalf("list payments by invoice: %v", getErr)
+	}
+
+	if len(storedPayments) != 0 {
+		t.Fatalf("expected no payment created after consumer failure, got %d", len(storedPayments))
+	}
+
+	billingRequested := outboxEventByName(ctx, t, pool, "BillingRequested")
+	if billingRequested.Status != "failed" {
+		t.Fatalf("expected BillingRequested outbox event failed, got %q", billingRequested.Status)
+	}
+
+	invoiceCreated := outboxEventByName(ctx, t, pool, invoiceevents.EventNameInvoiceCreated)
+	if invoiceCreated.Status != "failed" {
+		t.Fatalf("expected InvoiceCreated outbox event failed after downstream consumer failure, got %q", invoiceCreated.Status)
+	}
+}
+
+func TestPhase7OutboxAppendFailureKeepsInvoicePersistedAndBlocksConsumers(t *testing.T) {
+	ctx := context.Background()
+	databaseConfig, cleanup := support.StartPostgres(ctx, t)
+	defer cleanup()
+
+	support.RunMigrations(t, databaseConfig)
+
+	pool, err := sharedpostgres.Open(ctx, databaseConfig)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer pool.Close()
+
+	customerRepository := customerpersistence.NewPostgresRepository(pool)
+	customer, err := customerentities.NewCustomer(
+		uuid.NewString(),
+		"Atlas Co",
+		"51022033014",
+		"outbox-failure@atlas.io",
+		time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("new customer: %v", err)
+	}
+
+	if err := customerRepository.Save(ctx, customer); err != nil {
+		t.Fatalf("save customer: %v", err)
+	}
+
+	eventBus := newIntegrationEventBusWithFaultProfile(pool, config.FaultProfileOutboxAppendFailure)
+	customerModule := customers.NewModule(pool, eventBus)
+	invoiceRepository := invoicepersistence.NewPostgresRepository(pool)
+	createInvoice := invoicesusecases.NewCreateInvoice(invoiceRepository, customerModule.ExistenceChecker(), eventBus)
+
+	_, err = createInvoice.Execute(ctx, invoicesusecases.CreateInvoiceInput{
+		CustomerID:  customer.ID(),
+		AmountCents: 7500,
+		DueDate:     "2026-03-31",
+	})
+	if !errors.Is(err, runtimefaults.ErrSimulatedOutboxAppendFailure) {
+		t.Fatalf("expected simulated outbox append failure, got %v", err)
+	}
+
+	storedInvoices, getErr := invoiceRepository.ListByCustomerID(ctx, customer.ID())
+	if getErr != nil {
+		t.Fatalf("list stored invoices: %v", getErr)
+	}
+
+	if len(storedInvoices) != 1 {
+		t.Fatalf("expected one persisted invoice after outbox append failure, got %d", len(storedInvoices))
+	}
+
+	if storedInvoices[0].Status() != "Pending" {
+		t.Fatalf("expected persisted pending invoice after outbox append failure, got %q", storedInvoices[0].Status())
+	}
+
+	_, getErr = billingpersistence.NewPostgresRepository(pool).GetByInvoiceID(ctx, storedInvoices[0].ID())
+	if !errors.Is(getErr, billingpublic.ErrBillingNotFound) {
+		t.Fatalf("expected no billing after outbox append failure, got %v", getErr)
+	}
+
+	if count := countOutboxEvents(ctx, t, pool); count != 0 {
+		t.Fatalf("expected zero outbox events after append failure, got %d", count)
+	}
+}
+
 func newIntegrationEventBus(pool *pgxpool.Pool) *sharedevent.SyncBus {
 	return sharedevent.NewSyncBus(outbox.NewPostgresRecorder(pool))
+}
+
+func newIntegrationEventBusWithFaultProfile(pool *pgxpool.Pool, profile config.FaultProfile) *sharedevent.SyncBus {
+	recorder := runtimefaults.DecorateRecorder(profile, outbox.NewPostgresRecorder(pool))
+
+	return sharedevent.NewSyncBusWithOptions(
+		runtimefaults.EventBusOptions(profile, nil, recorder),
+	)
+}
+
+func newIntegrationGateway(profile config.FaultProfile, timeout time.Duration) paymentports.PaymentGateway {
+	return runtimefaults.DecorateGateway(profile, timeout, integration.NewMockGateway())
 }
 
 func countOutboxEvents(ctx context.Context, t *testing.T, pool *pgxpool.Pool) int {

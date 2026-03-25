@@ -1,98 +1,109 @@
 # Atlas ERP Core
 
-Atlas ERP Core e um ERP backend em Go modelado como modular monolith, com DDD, Clean Architecture e comunicacao interna orientada a eventos para reduzir acoplamento entre modulos.
+Atlas ERP Core is a Go backend for ERP core operations, designed as a modular monolith with DDD, Clean Architecture, explicit public contracts between modules, and an internal event-driven financial flow.
+
+It exists to demonstrate two things at once:
+
+- a realistic transactional core for customers, invoices, billing, and payments
+- a portfolio-grade engineering narrative with measurable behavior, controlled resilience, and documented architectural trade-offs
 
 ## Project Links
 
-- Notion: [Atlas ERP Core](https://www.notion.so/mrgomides/Atlas-ERP-Core-32ae01f2262680aea1a1dd408f0001d9?source=copy_link)
-- Architecture Readiness: [docs/architecture/distribution-readiness.md](docs/architecture/distribution-readiness.md)
+- Notion hub: [Atlas ERP Core](https://www.notion.so/mrgomides/Atlas-ERP-Core-32ae01f2262680aea1a1dd408f0001d9?source=copy_link)
+- Architecture readiness: [docs/architecture/distribution-readiness.md](docs/architecture/distribution-readiness.md)
+- Trade-offs: [docs/architecture/trade-offs.md](docs/architecture/trade-offs.md)
+- Failure scenarios: [docs/architecture/failure-scenarios.md](docs/architecture/failure-scenarios.md)
 - Diagrams: [docs/diagrams/architecture.md](docs/diagrams/architecture.md)
+- ADR catalog: [docs/adr/README.md](docs/adr/README.md)
+- Commands: [docs/commands.md](docs/commands.md)
+- Benchmark baseline: [docs/benchmarks/phase7-baseline.md](docs/benchmarks/phase7-baseline.md)
 
 ## Project Status
 
-Current Phase: **Phase 6 - Architectural Evolution & Distribution Readiness**
+Current Phase: **Phase 7 - Portfolio Differentiation & Advanced Engineering**
 
-## Phase 6 Delivery
+## Why This Project Exists
 
-Esta fase consolida fronteiras internas e prepara uma futura distribuicao sem abandonar a simplicidade operacional atual:
+Atlas ERP Core models a small but non-trivial ERP financial backbone:
 
-- contratos publicos entre modulos agora vivem em `internal/<module>/public`
-- eventos internos usam envelope padronizado com `event_id`, `event_name`, `occurred_at`, `aggregate_id`, `correlation_id` e `payload`
-- `outbox_events` registra append, `processed` e `failed` no dispatch sincronico atual
-- o fluxo principal continua observavel com OpenTelemetry, Jaeger, Prometheus e logs JSON em `slog`
-- `payments` e `billing` passam a ter documentacao explicita como candidatos mais provaveis a extracao futura
-- documentacao arquitetural adicional agora cobre mapa de dependencias, catalogo de eventos, contratos publicos e criterios para distribuir
+- customer registration and lifecycle
+- invoice issuance and listing
+- billing generation from invoices
+- payment processing with idempotency, retry, timeout handling, and auditability
 
-O fluxo principal continua:
-
-`Create Customer -> Create Invoice -> InvoiceCreated -> BillingRequested -> PaymentApproved -> Invoice Paid`
-
-O caminho de compatibilidade continua:
-
-`POST /payments -> reprocessa billing existente apos PaymentFailed ou falha tecnica de gateway`
+The goal is not feature volume. The goal is to show a defendable architecture, explicit trade-offs, and operational evidence that can be reviewed in code, tests, diagrams, ADRs, traces, metrics, and benchmark artifacts.
 
 ## Architecture Summary
 
-- Estilo principal: Modular Monolith
-- Modelagem: DDD
-- Organizacao interna: Clean Architecture + Ports and Adapters
-- Comunicacao entre modulos: event bus interno sincronico
-- Runtime atual: um unico processo HTTP em Go
-- Persistencia: PostgreSQL
-- Contratos entre modulos: `internal/<module>/public`
-- Eventos internos: envelope padronizado por modulo, com catalogo publico e payloads estaveis
-- Outbox: append + status `pending`, `processed` e `failed` no fluxo sincronico atual
-- Resiliencia herdada da Phase 4: idempotencia por tentativa, retry controlado e timeout configuravel de gateway
-- Observabilidade herdada da Phase 5: OpenTelemetry para traces e metricas, `slog` para logs estruturados, Jaeger e Prometheus para inspeccao local
+- Style: Modular Monolith
+- Modeling: DDD
+- Internal organization: Clean Architecture + Ports and Adapters
+- Module communication: internal synchronous event bus with public event contracts
+- Persistence: PostgreSQL with logical ownership by module
+- Observability: OpenTelemetry traces and metrics, `slog` JSON logs, Jaeger, Prometheus
+- Delivery model: one deployable process, prepared for future extraction without pretending to be distributed already
 
-## Public Module Contracts
+### Public module contracts
 
 | Module | Public contracts |
 | --- | --- |
-| `customers` | `ExistenceChecker`, `ErrCustomerNotFound`, `ErrCustomerInactive`, `public/events` |
+| `customers` | `ExistenceChecker`, public errors, `public/events` |
 | `invoices` | `public/events` |
-| `billing` | `PaymentCompatibilityPort`, `BillingSnapshot`, `ErrBillingNotFound`, `ErrBillingAlreadyApproved`, `public/events` |
+| `billing` | `PaymentCompatibilityPort`, `BillingSnapshot`, public errors, `public/events` |
 | `payments` | `public/events` |
 
-## Implemented Modules
+### Active modules
 
-### Customers
+#### Customers
 
 - Aggregate: `Customer`
 - Value objects: `Document`, `Email`
 - Use cases: `CreateCustomer`, `UpdateCustomer`, `DeactivateCustomer`
-- Eventos publicados: `CustomerCreated`
+- Published event: `CustomerCreated`
 
-### Invoices
+#### Invoices
 
 - Aggregate: `Invoice`
 - Use cases: `CreateInvoice`, `ListCustomerInvoices`, `ApplyPaymentApproved`
-- Eventos publicados: `InvoiceCreated`, `InvoicePaid`
-- Regras principais: customer ativo, `amount_cents > 0`, `due_date` obrigatoria, invoice imutavel apos pagamento
+- Published events: `InvoiceCreated`, `InvoicePaid`
 
-### Billing
+#### Billing
 
 - Aggregate: `Billing`
 - Use cases: `CreateBillingFromInvoice`, `GetProcessableBillingByInvoiceID`, `MarkBillingApproved`, `MarkBillingFailed`
-- Evento publicado: `BillingRequested`
-- Regras principais: uma cobranca por invoice, `attempt_number` monotonicamente crescente, reativacao segura apos `Failed`, status `Requested`, `Failed` e `Approved`
+- Published event: `BillingRequested`
+- Important behavior: monotonic `attempt_number`, safe retry reactivation, explicit `Requested`, `Failed`, and `Approved` states
 
-### Payments
+#### Payments
 
 - Aggregate: `Payment`
 - Use cases: `ProcessBillingRequest`, `ProcessPayment`
-- Eventos publicados: `PaymentApproved`, `PaymentFailed`
-- Regras principais: idempotencia por `(billing_id, attempt_number)`, `idempotency_key` persistida, retry permitido apos `Failed`, no maximo um `Approved` por invoice
+- Published events: `PaymentApproved`, `PaymentFailed`
+- Important behavior: idempotency by `(billing_id, attempt_number)`, persisted `idempotency_key`, `failure_category`, timeout handling, and one approved payment per invoice
+
+## Main Flows
+
+### Automatic flow
+
+```text
+Create Customer -> Create Invoice -> InvoiceCreated -> BillingRequested -> PaymentApproved -> Invoice Paid
+```
+
+### Compatibility and retry path
+
+```text
+POST /payments -> reprocess an existing billing after PaymentFailed or technical gateway failure
+```
 
 ## Internal Event Catalog
 
-Todos os eventos internos usam o mesmo contrato:
+All internal events use a stable envelope:
 
 ```json
 {
   "metadata": {
     "event_id": "uuid",
-    "event_name": "InvoiceCreated",
+    "event_name": "BillingRequested",
     "occurred_at": "2026-03-25T10:00:00Z",
     "aggregate_id": "uuid",
     "correlation_id": "req-123"
@@ -101,205 +112,211 @@ Todos os eventos internos usam o mesmo contrato:
 }
 ```
 
-| Event | Producer | Consumers | Public package |
-| --- | --- | --- | --- |
-| `CustomerCreated` | `customers` | none | `internal/customers/public/events` |
-| `InvoiceCreated` | `invoices` | `billing` | `internal/invoices/public/events` |
-| `BillingRequested` | `billing` | `payments` | `internal/billing/public/events` |
-| `PaymentApproved` | `payments` | `billing`, `invoices` | `internal/payments/public/events` |
-| `PaymentFailed` | `payments` | `billing` | `internal/payments/public/events` |
-| `InvoicePaid` | `invoices` | none | `internal/invoices/public/events` |
-
-## Public HTTP Endpoints
-
-| Method | Path | Description |
+| Event | Producer | Consumers |
 | --- | --- | --- |
-| `GET` | `/health` | Healthcheck da aplicacao |
-| `GET` | `/metrics` | Endpoint Prometheus com metricas tecnicas |
-| `POST` | `/customers` | Cria cliente |
-| `PUT` | `/customers/{id}` | Atualiza nome e email do cliente |
-| `PATCH` | `/customers/{id}/inactive` | Inativa cliente logicamente |
-| `POST` | `/invoices` | Cria invoice e dispara o fluxo automatico de billing e payment |
-| `GET` | `/customers/{id}/invoices` | Lista invoices do cliente |
-| `POST` | `/payments` | Reprocessa manualmente o pagamento de uma invoice com billing existente |
-
-## JSON Contracts
-
-- IDs sao UUID strings
-- `amount_cents` e inteiro
-- `due_date` usa `YYYY-MM-DD`
-- erros usam:
-
-```json
-{
-  "error": "invalid_input",
-  "message": "document is required",
-  "request_id": "req-123"
-}
-```
-
-- o header `X-Correlation-ID` continua sendo aceito e devolvido
-- `traceparent` e `tracestate` passam a ser aceitos para propagacao de trace
-- `request_id` continua aparecendo no body de erro e nos logs
-
-## Directory Structure
-
-```text
-.
-├── .agents/
-│   ├── rules/
-│   ├── skills/
-│   ├── subagents/
-│   └── templates/
-├── cmd/
-│   ├── api/
-│   └── migrate/
-├── docs/
-│   ├── architecture/
-│   ├── adr/
-│   ├── commands.md
-│   └── diagrams/
-├── internal/
-│   ├── billing/
-│   ├── customers/
-│   ├── invoices/
-│   ├── payments/
-│   └── shared/
-│       ├── config/
-│       ├── correlation/
-│       ├── event/
-│       ├── http/
-│       ├── logging/
-│       ├── observability/
-│       ├── outbox/
-│       └── postgres/
-├── migrations/
-├── test/
-│   ├── functional/
-│   ├── integration/
-│   └── support/
-├── CHANGELOG.md
-├── Makefile
-├── docker-compose.yml
-├── prometheus.yml
-└── README.md
-```
+| `CustomerCreated` | `customers` | none |
+| `InvoiceCreated` | `invoices` | `billing` |
+| `BillingRequested` | `billing` | `payments` |
+| `PaymentApproved` | `payments` | `billing`, `invoices` |
+| `PaymentFailed` | `payments` | `billing` |
+| `InvoicePaid` | `invoices` | none |
 
 ## Technology Stack
 
 - Go 1.26
 - `chi` for HTTP routing
 - `log/slog` for structured logging
+- `godotenv` for `.env` bootstrap and `.env.<APP_ENV>` overlay
 - OpenTelemetry Go SDK for traces and metrics
 - `otelhttp` for HTTP instrumentation
-- Internal synchronous event bus with module-owned public event contracts
-- Outbox event recorder stored in PostgreSQL with lifecycle status updates
 - PostgreSQL
-- `pgx/v5` for database access and query tracing
+- `pgx/v5` for access and query tracing
 - `golang-migrate` for migrations
-- Docker + Docker Compose for local runtime
-- Jaeger all-in-one for local trace inspection
+- Docker + Docker Compose
+- Jaeger all-in-one for local tracing
 - Prometheus for local metrics scraping
-- `testcontainers-go` for integration and functional tests with real PostgreSQL
+- `testcontainers-go` for integration and functional tests
 - GitHub Actions for CI baseline
 
-## Environment Variables
+## Runtime And Environment
+
+### Environment variables
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `APP_PORT` | Yes | - | HTTP port exposed by the application |
+| `APP_PORT` | Yes | - | HTTP port exposed by the API |
 | `DB_HOST` | Yes | - | PostgreSQL host |
 | `DB_PORT` | Yes | - | PostgreSQL port |
-| `DB_USER` | Yes | - | PostgreSQL username |
+| `DB_USER` | Yes | - | PostgreSQL user |
 | `DB_PASSWORD` | Yes | - | PostgreSQL password |
-| `DB_NAME` | Yes | - | PostgreSQL database name |
+| `DB_NAME` | Yes | - | PostgreSQL database |
 | `APP_NAME` | No | `atlas-erp-core` | Logical application name |
 | `APP_ENV` | No | `local` | Current environment |
 | `LOG_LEVEL` | No | `info` | Structured log level |
-| `CORRELATION_ID_HEADER` | No | `X-Correlation-ID` | Header propagated across requests and logs |
-| `PAYMENT_GATEWAY_TIMEOUT_MS` | No | `2000` | Maximum gateway processing time per payment attempt in milliseconds |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | empty | OTLP HTTP endpoint used to export traces; empty disables remote export |
+| `CORRELATION_ID_HEADER` | No | `X-Correlation-ID` | Request correlation header |
+| `ATLAS_FAULT_PROFILE` | No | `none` | Controlled failure profile for local evaluation; must stay `none` in `production` |
+| `PAYMENT_GATEWAY_TIMEOUT_MS` | No | `2000` | Gateway timeout per payment attempt |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | empty | OTLP HTTP trace export endpoint; empty disables remote export |
 
-## Local Setup
+### Local stack
 
-Prerequisites:
+The official local stack runs:
 
-- Go 1.26+
-- Docker Desktop or Docker daemon running
+- API
+- PostgreSQL
+- Jaeger
+- Prometheus
 
-1. Copy the environment file:
+## How To Run Locally
 
-```bash
-rtk make setup
-```
-
-2. Start the local stack:
-
-```bash
-rtk make up
-```
-
-Isso sobe:
-
-- API em `http://localhost:8080`
-- Jaeger em `http://localhost:16686`
-- Prometheus em `http://localhost:9090`
-- PostgreSQL em `localhost:5432`
-
-3. Run migrations:
+### 1. Prepare `.env`
 
 ```bash
-rtk make migrate-up
+rtk cp .env.example .env
 ```
 
-4. Validate health and metrics:
+### 2. Start the local stack
+
+```bash
+rtk docker compose up --build -d
+```
+
+### 3. Run migrations
+
+```bash
+rtk go run ./cmd/migrate --direction up
+```
+
+### 4. Validate health and metrics
 
 ```bash
 rtk curl http://localhost:8080/health
 rtk curl http://localhost:8080/metrics
 ```
 
-5. Execute the automatic event-driven flow:
+### 5. Run the API outside Compose if needed
 
 ```bash
-rtk curl -X POST http://localhost:8080/customers \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-001' \
-  -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
-
-rtk curl -X POST http://localhost:8080/invoices \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-002' \
-  -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-25"}'
-
-rtk curl http://localhost:8080/customers/<customer-id>/invoices \
-  -H 'X-Correlation-ID: demo-req-003'
+rtk env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-6. Retry a failed payment manually when needed:
+### 6. Stop the stack
 
 ```bash
-rtk curl -X POST http://localhost:8080/payments \
-  -H 'Content-Type: application/json' \
-  -H 'X-Correlation-ID: demo-req-004' \
-  -d '{"invoice_id":"<invoice-id>"}'
+rtk docker compose down --remove-orphans
 ```
 
-7. If you run the API outside Compose and still want traces exported, set:
+More operational commands live in [docs/commands.md](docs/commands.md).
+
+## HTTP Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | healthcheck |
+| `GET` | `/metrics` | Prometheus metrics |
+| `POST` | `/customers` | create customer |
+| `PUT` | `/customers/{id}` | update customer |
+| `PATCH` | `/customers/{id}/inactive` | deactivate customer |
+| `POST` | `/invoices` | create invoice and trigger automatic billing/payment flow |
+| `GET` | `/customers/{id}/invoices` | list invoices by customer |
+| `POST` | `/payments` | manually retry payment for an existing billing |
+
+## Testing Strategy
+
+This repository follows behavior-first validation:
+
+- unit tests for domain invariants, application orchestration, decorators, and collectors
+- integration tests with real PostgreSQL for persistence, outbox, duplicate delivery, retry, timeout, and consumer/outbox failures
+- functional tests for HTTP contracts, traceability, and controlled failure profiles
+
+### Run the full suite
 
 ```bash
-rtk env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 make run
+rtk go test ./...
 ```
 
-8. Stop the stack:
+### Run by layer
 
 ```bash
-rtk make down
+rtk go test ./internal/...
+rtk go test ./test/integration/...
+rtk go test ./test/functional/...
 ```
 
-## Tracing And Metrics
+## Benchmark
 
-### Span naming
+Phase 7 adds a reproducible HTTP benchmark suite in [`test/benchmark`](test/benchmark) covering:
+
+- customer creation
+- invoice creation
+- manual payment retry
+- end-to-end flow
+
+### Run the benchmark suite
+
+```bash
+rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark
+```
+
+### Export JSON and Markdown evidence
+
+```bash
+rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark \
+  -args \
+  -report-json docs/benchmarks/phase7-baseline.json \
+  -report-md docs/benchmarks/phase7-baseline.md
+```
+
+Reported metrics:
+
+- `avg_ms`
+- `p95_ms`
+- `ops/s`
+- `error_rate_pct`
+
+If Docker or testcontainers are unavailable, the export still writes `docs/benchmarks/phase7-baseline.{json,md}` with `status: no_samples` and a note explaining the missing runtime prerequisite.
+The benchmark commands use `rtk proxy go test` so the benchmark runner and custom export flags are forwarded without wrapper interference.
+
+## Controlled Failure Simulation
+
+Phase 7 adds `ATLAS_FAULT_PROFILE` to exercise predictable failure scenarios without changing business contracts.
+
+Supported profiles:
+
+- `none`
+- `payment_timeout`
+- `payment_flaky_first`
+- `duplicate_billing_requested`
+- `event_consumer_failure`
+- `outbox_append_failure`
+
+### Example: timeout profile
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+### Example: duplicate delivery profile
+
+```bash
+rtk env ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+See [docs/architecture/failure-scenarios.md](docs/architecture/failure-scenarios.md) for the scenario matrix, expected outcomes, and validation steps.
+
+## Observability
+
+### Tracing
+
+- Jaeger UI: `http://localhost:16686`
+- Expected service name: `atlas-erp-core`
+
+### Metrics
+
+- Prometheus UI: `http://localhost:9090`
+- `GET /metrics` exposes technical metrics for HTTP, events, retries, DB queries, and gateway calls
+
+### Key span names
 
 - `http.request {METHOD} {route}`
 - `application.usecase {module}.{UseCase}`
@@ -308,120 +325,92 @@ rtk make down
 - `db.query {operation} {table}`
 - `integration.gateway payments.Process`
 
-### Available metrics
+### Key log fields
 
-#### HTTP
-
-- `atlas_erp_http_requests_total`
-- `atlas_erp_http_request_errors_total`
-- `atlas_erp_http_request_duration_seconds`
-
-#### Application
-
-- `atlas_erp_events_published_total`
-- `atlas_erp_events_consumed_total`
-- `atlas_erp_event_handler_failures_total`
-- `atlas_erp_payment_retries_total`
-
-#### Persistence and integration
-
-- `atlas_erp_db_query_duration_seconds`
-- `atlas_erp_gateway_request_duration_seconds`
-- `atlas_erp_gateway_failures_total`
-
-### Log fields
-
-Sempre:
+Always present when applicable:
 
 - `module`
 - `request_id`
 - `event_id`
 - `aggregate_id`
 - `correlation_id`
-
-Quando aplicavel:
-
 - `trace_id`
 - `span_id`
 - `event_name`
-- `event`
-- `customer_id`
-- `invoice_id`
-- `billing_id`
-- `payment_id`
 - `attempt_number`
 - `retry_count`
 - `failure_category`
 - `error_type`
 
-### Error categories
+## Engineering Evidence
 
-- `validation_error`
-- `domain_error`
-- `integration_error`
-- `infrastructure_error`
+Phase 7 is considered presentable because the repository now includes:
 
-## Troubleshooting
+- benchmark summary artifacts in `docs/benchmarks/`
+- controlled fault profiles in runtime composition
+- critical scenario coverage across unit, integration, and functional layers
+- explicit ADR catalog and phase-governance artifacts
+- refined architecture and sequence diagrams
+- trade-off and known limitation documents that match the implementation
 
-### Follow the main trace
+## Trade-Offs
 
-1. Abra o Jaeger em `http://localhost:16686`
-2. Selecione o servico `atlas-erp-core`
-3. Gere um `POST /invoices`
-4. Procure o trace `http.request POST /invoices`
-5. Expanda os spans filhos de `application.usecase`, `event.publish`, `event.consume`, `db.query` e `integration.gateway`
+The project deliberately stays in a modular monolith because:
 
-### Inspect metrics
+- one-process operation is still cheaper than distributed coordination
+- the current traffic and complexity do not justify broker or microservice overhead
+- internal events and public contracts already create a safe path to future extraction
+- local debugging, tests, and operational reasoning remain simpler
 
-1. Abra `http://localhost:9090`
-2. Consulte `atlas_erp_http_request_duration_seconds`
-3. Consulte `atlas_erp_event_handler_failures_total`
-4. Consulte `atlas_erp_gateway_failures_total`
-5. Consulte `atlas_erp_payment_retries_total`
+The longer version is documented in [docs/architecture/trade-offs.md](docs/architecture/trade-offs.md).
 
-### Diagnose payment failures
+## Known Limitations
 
-- `gateway_timeout`: o gateway excedeu `PAYMENT_GATEWAY_TIMEOUT_MS`
-- `gateway_error`: erro tecnico no adapter ou na chamada externa
-- `gateway_declined`: o gateway respondeu, mas recusou a cobranca
-- `attempt_number`: tentativa persistida na cobranca e no pagamento
-- `retry_count`: contador operacional derivado de `attempt_number - 1`
+- the outbox reflects synchronous dispatch lifecycle only; there is no asynchronous dispatcher
+- the benchmark suite is local evidence, not a CI gate or a production capacity claim
+- failure profiles are intentionally local-only and must remain disabled in production
+- PostgreSQL ownership is logical by module, not isolated by schema or database
+- there is no external broker, collector, Grafana, or multi-process deployment yet
 
-## Main Commands
+## Roadmap Snapshot
 
-Main commands are documented in [docs/commands.md](docs/commands.md).
+| Phase | Focus | Outcome |
+| --- | --- | --- |
+| Phase 0 | Foundation | repo, runtime, CI, healthcheck |
+| Phase 1 | Core Domain | first end-to-end business flow |
+| Phase 2 | Quality | validation, tests, traceability |
+| Phase 3 | Internal Events | event-driven modular flow |
+| Phase 4 | Resilience | idempotency, retry, outbox seed |
+| Phase 5 | Observability | traces, metrics, Jaeger, Prometheus |
+| Phase 6 | Distribution Readiness | public contracts, envelope, extraction criteria |
+| Phase 7 | Portfolio Differentiation | benchmark, fault simulation, ADR/diagram showcase |
 
-```bash
-rtk make setup
-rtk make up
-rtk make down
-rtk make run
-rtk make build
-rtk make fmt
-rtk make lint
-rtk make test
-rtk make test-unit
-rtk make test-integration
-rtk make test-functional
-rtk make migrate-up
-rtk make migrate-down
-```
+## Directory Map
 
-## Testing Strategy
-
-### Coverage by layer
-
-- Domain: entities, value objects, idempotency and status transitions
-- Application: use cases, public contracts and event handlers for invoice creation, billing generation, payment processing and manual retry
-- Unit observability: telemetry bootstrap, route labeling, SQL sanitization, log enrichment, error taxonomy and event bus spans/metrics
-- Integration: PostgreSQL real via `testcontainers-go`, cobrindo fluxo critico, envelope do outbox, metricas de retry e falha tecnica
-- Functional: HTTP contract, `/metrics`, `traceparent`, log context minimo e rastreabilidade ponta a ponta
-
-### How to run tests
-
-```bash
-rtk make test-unit
-rtk make test-integration
-rtk make test-functional
-rtk make test
+```text
+.
+├── cmd/
+│   ├── api/
+│   └── migrate/
+├── docs/
+│   ├── adr/
+│   ├── architecture/
+│   ├── benchmarks/
+│   ├── commands.md
+│   └── diagrams/
+├── internal/
+│   ├── billing/
+│   ├── customers/
+│   ├── invoices/
+│   ├── payments/
+│   └── shared/
+├── migrations/
+├── test/
+│   ├── benchmark/
+│   ├── functional/
+│   ├── integration/
+│   └── support/
+├── AGENTS.md
+├── CHANGELOG.md
+└── docker-compose.yml
 ```
