@@ -396,13 +396,13 @@ Regras complementares:
 
 ## Checklist pos-implementacao
 
-- `rtk gofmt -w <arquivos>`
-- `rtk go vet ./...`
-- `rtk go test ./internal/...`
-- `rtk go test ./test/integration/...`
-- `rtk go test ./test/functional/...`
-- `rtk go test ./...`
-- `rtk docker compose up --build -d`
+- `gofmt -w <arquivos>`
+- `go vet ./...`
+- `go test ./internal/...`
+- `go test ./test/integration/...`
+- `go test ./test/functional/...`
+- `go test ./...`
+- `docker compose up --build -d`
 - revisar `README.md`
 - revisar `CHANGELOG.md`
 - revisar `docs/commands.md`

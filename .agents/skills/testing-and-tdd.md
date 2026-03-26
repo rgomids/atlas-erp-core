@@ -43,7 +43,7 @@ Use esta skill em qualquer mudança que altere comportamento, corrija bug ou adi
 
 Escolher o menor conjunto honesto entre:
 
-- `rtk go test ./internal/...`
-- `rtk go test ./test/integration/...`
-- `rtk go test ./test/functional/...`
-- `rtk go test ./...`
+- `go test ./internal/...`
+- `go test ./test/integration/...`
+- `go test ./test/functional/...`
+- `go test ./...`
