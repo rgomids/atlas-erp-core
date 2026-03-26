@@ -40,10 +40,10 @@ Todo bug corrigido deve ganhar um teste que falha antes e passa depois.
 
 Escolher o menor conjunto de validação que ainda seja honesto com o risco:
 
-- `rtk go test ./internal/...`
-- `rtk go test ./test/integration/...`
-- `rtk go test ./test/functional/...`
-- `rtk go test ./...`
+- `go test ./internal/...`
+- `go test ./test/integration/...`
+- `go test ./test/functional/...`
+- `go test ./...`
 
 Quando algum teste não puder ser executado, registrar claramente:
 

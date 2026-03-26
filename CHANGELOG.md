@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-03-25
+
+### Added
+
+- English-first `README.md` rebuilt as the primary portfolio document for purpose, architecture, operation, resilience, observability, ADRs, benchmarks, and roadmap.
+- Root `README.pt-BR.md` as a Portuguese companion with the same structure and equivalent technical narrative.
+
+### Changed
+
+- Project-facing documentation now uses standard shell commands and Makefile shortcuts instead of documenting local execution wrappers.
+- `docs/commands.md` now documents quick-start, testing, benchmark, and fault-profile workflows with `make` shortcuts plus raw commands.
+- Supporting governance and documentation artifacts were synchronized with the README-first documentation model.
+
 ## [0.8.0] - 2026-03-25
 
 ### Added
@@ -17,7 +30,7 @@ All notable changes to this project will be documented in this file.
 - Project status moved from Phase 6 to Phase 7 - Portfolio Differentiation & Advanced Engineering.
 - Bootstrap now wires fault-aware decorators only at technical seams: config, event bus, outbox recorder, and mock gateway.
 - README, AGENTS, command guide, diagrams, phase status, and governance artifacts now present the repository as a portfolio-grade technical showcase.
-- Operational documentation now prefers direct `rtk` commands instead of Makefile-first workflows.
+- Operational documentation now prefers direct shell commands instead of Makefile-first workflows.
 
 ### Fixed
 
@@ -39,7 +52,7 @@ All notable changes to this project will be documented in this file.
 - Project status moved from Phase 5 to Phase 6 - Architectural Evolution & Distribution Readiness.
 - `customers`, `invoices`, `billing`, and `payments` now publish and consume public events instead of importing other modules through `domain/events`.
 - `outbox_events` now stores `aggregate_id`, `correlation_id`, `processed_at`, `failed_at`, and `error_message`, while persisting the full event envelope.
-- README, AGENTS, commands guide, diagrams, phase status, and governance artifacts now document Phase 6 and use `rtk`-prefixed operational commands.
+- README, AGENTS, commands guide, diagrams, phase status, and governance artifacts now document Phase 6 and use direct operational commands.
 
 ### Fixed
 

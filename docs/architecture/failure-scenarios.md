@@ -17,14 +17,14 @@ Phase 7 adds controlled failure profiles to demonstrate predictable system behav
 Run the API locally with the desired profile:
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=<profile> OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=<profile> OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
 Examples:
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
-rtk env ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
 ## Expected Behavior By Scenario

@@ -1,211 +1,272 @@
 # Command Reference
 
-Este arquivo centraliza os comandos operacionais oficiais da Phase 7.
+This document centralizes the official operational commands for Atlas ERP Core Phase 7.
 
-Superficie preferencial:
+The published interface uses standard shell commands and Makefile shortcuts. Local wrappers are intentionally not documented here.
 
-- comandos diretos com `rtk`
-- `docker compose` para subir a stack local
-- `go test` para validacao e benchmark
+## Quick Start
 
-O Makefile permanece apenas como conveniencia secundaria e nao e a interface principal documentada.
-
-## Preparacao local
-
-### 1. Criar `.env` local
+### 1. Create the local environment file
 
 ```bash
-rtk cp .env.example .env
+cp .env.example .env
 ```
 
-### 2. Subir a stack oficial
+### 2. Start the local stack
+
+Make shortcut:
 
 ```bash
-rtk docker compose up --build -d
+make up
 ```
 
-Servicos esperados:
-
-- API em `http://localhost:8080`
-- PostgreSQL em `localhost:5432`
-- Jaeger em `http://localhost:16686`
-- Prometheus em `http://localhost:9090`
-
-### 3. Rodar migracoes manualmente
+Underlying command:
 
 ```bash
-rtk go run ./cmd/migrate --direction up
+docker compose up --build -d
 ```
 
-### 4. Rodar a API fora do Compose
+Expected services:
 
-Use este caminho quando quiser iterar localmente no binario da API mantendo PostgreSQL, Jaeger e Prometheus no Compose:
+- API at `http://localhost:8080`
+- PostgreSQL at `localhost:5432`
+- Jaeger at `http://localhost:16686`
+- Prometheus at `http://localhost:9090`
+
+### 3. Run migrations
+
+Make shortcut:
 
 ```bash
-rtk env OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+make migrate-up
 ```
 
-### 5. Encerrar a stack
+Underlying command:
 
 ```bash
-rtk docker compose down --remove-orphans
+go run ./cmd/migrate --direction up
 ```
 
-## Validacao rapida
+### 4. Run the API from source
+
+Make shortcut:
+
+```bash
+make run
+```
+
+Underlying command:
+
+```bash
+go run ./cmd/api
+```
+
+If you want traces in the local Jaeger instance while running outside Compose:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 make run
+```
+
+### 5. Stop the stack
+
+Make shortcut:
+
+```bash
+make down
+```
+
+Underlying command:
+
+```bash
+docker compose down --remove-orphans
+```
+
+## Fast Validation
 
 ### Healthcheck
 
 ```bash
-rtk curl http://localhost:8080/health
+curl http://localhost:8080/health
 ```
 
-### Metricas
+### Metrics
 
 ```bash
-rtk curl http://localhost:8080/metrics
+curl http://localhost:8080/metrics
 ```
 
-## Fluxo principal
+## Main Flow Examples
 
-### Criar cliente
+### Create customer
 
 ```bash
-rtk curl -X POST http://localhost:8080/customers \
+curl -X POST http://localhost:8080/customers \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-phase7-001' \
   -d '{"name":"Atlas Co","document":"12345678900","email":"team@atlas.io"}'
 ```
 
-### Criar invoice e disparar o fluxo automatico
+### Create invoice and trigger the automatic flow
 
 ```bash
-rtk curl -X POST http://localhost:8080/invoices \
+curl -X POST http://localhost:8080/invoices \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-phase7-002' \
   -d '{"customer_id":"<customer-id>","amount_cents":1599,"due_date":"2026-03-31"}'
 ```
 
-### Listar invoices do cliente
+### List customer invoices
 
 ```bash
-rtk curl http://localhost:8080/customers/<customer-id>/invoices \
+curl http://localhost:8080/customers/<customer-id>/invoices \
   -H 'X-Correlation-ID: demo-phase7-003'
 ```
 
-### Retry manual de pagamento
+### Manually retry payment
 
 ```bash
-rtk curl -X POST http://localhost:8080/payments \
+curl -X POST http://localhost:8080/payments \
   -H 'Content-Type: application/json' \
   -H 'X-Correlation-ID: demo-phase7-004' \
   -d '{"invoice_id":"<invoice-id>"}'
 ```
 
-## Testes
+## Test Commands
 
-### Suite completa
+### Full suite
+
+Make shortcut:
 
 ```bash
-rtk go test ./...
+make test
 ```
 
-### Testes unitarios
+Underlying command:
 
 ```bash
-rtk go test ./internal/...
+go test ./...
 ```
 
-### Testes de integracao
+### Unit-focused suite
+
+Make shortcut:
 
 ```bash
-rtk go test ./test/integration/...
+make test-unit
 ```
 
-### Testes funcionais
+Underlying command:
 
 ```bash
-rtk go test ./test/functional/...
+go test ./internal/...
 ```
 
-## Benchmark reproduzivel
+### Integration suite
 
-### Rodar benchmarks HTTP da Phase 7
+Make shortcut:
 
 ```bash
-rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark
+make test-integration
 ```
 
-### Gerar baseline em JSON e Markdown
+Underlying command:
 
 ```bash
-rtk proxy go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark \
+go test ./test/integration/...
+```
+
+### Functional suite
+
+Make shortcut:
+
+```bash
+make test-functional
+```
+
+Underlying command:
+
+```bash
+go test ./test/functional/...
+```
+
+## Reproducible Benchmark
+
+### Run the Phase 7 HTTP benchmarks
+
+```bash
+go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark
+```
+
+### Export the baseline as JSON and Markdown
+
+```bash
+go test -run '^$' -bench . -benchmem -benchtime=10x ./test/benchmark \
   -args \
   -report-json docs/benchmarks/phase7-baseline.json \
   -report-md docs/benchmarks/phase7-baseline.md
 ```
 
-Saidas esperadas:
+Expected fields:
 
 - `avg_ms`
 - `p95_ms`
-- `ops/s`
+- `ops_per_sec`
 - `error_rate_pct`
 
-Se Docker ou `testcontainers-go` nao estiverem disponiveis, os artefatos ainda sao gerados com `status: no_samples` e uma nota explicando o pre-requisito ausente.
-Use `rtk proxy go test` nesses comandos para preservar os flags de benchmark e exportacao.
+If Docker or `testcontainers-go` is unavailable, the export still writes the artifacts with `status: no_samples` and a note explaining the missing prerequisite.
 
-## Perfis de falha controlada
+## Controlled Failure Profiles
 
-Todos os perfis abaixo sao exclusivos para avaliacao local e dev. Em `APP_ENV=production`, `ATLAS_FAULT_PROFILE` deve ser `none`.
+All profiles below are local-only evaluation tools. In `APP_ENV=production`, `ATLAS_FAULT_PROFILE` must remain `none`.
 
-### Sem falha injetada
-
-```bash
-rtk env ATLAS_FAULT_PROFILE=none OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
-```
-
-### Timeout no gateway
+### No injected fault
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=none OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-### Primeira chamada ao gateway falha, retry manual pode aprovar
+### Gateway timeout
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=payment_flaky_first OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=payment_timeout OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-### Primeira entrega de `BillingRequested` e duplicada
+### First gateway call fails, manual retry can approve
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=payment_flaky_first OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-### Primeira entrega de `BillingRequested` para `payments` falha
+### First `BillingRequested` delivery is duplicated
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=event_consumer_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=duplicate_billing_requested OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-### Primeiro append no outbox falha antes dos consumidores
+### First `BillingRequested` delivery to `payments` fails
 
 ```bash
-rtk env ATLAS_FAULT_PROFILE=outbox_append_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+ATLAS_FAULT_PROFILE=event_consumer_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
 ```
 
-## Observabilidade
+### First outbox append fails before consumers run
+
+```bash
+ATLAS_FAULT_PROFILE=outbox_append_failure OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 go run ./cmd/api
+```
+
+## Observability
 
 ### Traces
 
-- UI local: `http://localhost:16686`
-- service name esperado: `atlas-erp-core`
+- Local UI: `http://localhost:16686`
+- Expected service name: `atlas-erp-core`
 
 ### Prometheus
 
-- UI local: `http://localhost:9090`
+- Local UI: `http://localhost:9090`
 
-### Span names principais
+### Key span names
 
 - `http.request {METHOD} {route}`
 - `application.usecase {module}.{UseCase}`
@@ -214,7 +275,7 @@ rtk env ATLAS_FAULT_PROFILE=outbox_append_failure OTEL_EXPORTER_OTLP_ENDPOINT=ht
 - `db.query {operation} {table}`
 - `integration.gateway payments.Process`
 
-### Metricas principais
+### Key metrics
 
 - `atlas_erp_http_requests_total`
 - `atlas_erp_http_request_errors_total`
@@ -227,28 +288,28 @@ rtk env ATLAS_FAULT_PROFILE=outbox_append_failure OTEL_EXPORTER_OTLP_ENDPOINT=ht
 - `atlas_erp_gateway_request_duration_seconds`
 - `atlas_erp_gateway_failures_total`
 
-## Diagnostico rapido
+## Troubleshooting
 
-### Timeout de gateway
+### Gateway timeout
 
-- validar `PAYMENT_GATEWAY_TIMEOUT_MS`
-- conferir `failure_category=gateway_timeout`
-- conferir traces `integration.gateway payments.Process`
+- validate `PAYMENT_GATEWAY_TIMEOUT_MS`
+- inspect `failure_category=gateway_timeout`
+- inspect traces for `integration.gateway payments.Process`
 
-### Duplicidade de evento
+### Event duplication
 
-- usar `ATLAS_FAULT_PROFILE=duplicate_billing_requested`
-- validar que ha apenas um pagamento `Approved` por invoice
-- conferir `attempt_number` e `idempotency_key`
+- use `ATLAS_FAULT_PROFILE=duplicate_billing_requested`
+- validate that only one payment is approved per invoice
+- inspect `attempt_number` and `idempotency_key`
 
-### Falha no consumo interno
+### Internal consumer failure
 
-- usar `ATLAS_FAULT_PROFILE=event_consumer_failure`
-- validar `outbox_events.status=failed`
-- conferir ausencia de `PaymentApproved`
+- use `ATLAS_FAULT_PROFILE=event_consumer_failure`
+- validate `outbox_events.status=failed`
+- confirm the absence of `PaymentApproved`
 
-### Falha no append do outbox
+### Outbox append failure
 
-- usar `ATLAS_FAULT_PROFILE=outbox_append_failure`
-- validar persistencia do aggregate upstream
-- validar ausencia de consumidores downstream e de registro no outbox
+- use `ATLAS_FAULT_PROFILE=outbox_append_failure`
+- validate that the upstream aggregate was still persisted
+- validate the absence of downstream side effects and missing outbox append
